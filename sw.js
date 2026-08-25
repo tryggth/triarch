@@ -1,13 +1,14 @@
 /**
  * TRIARCH: Cyclic Edge - Service Worker
- * Robust offline caching and lifecycle management for GitHub Pages PWA deployment.
+ * Robust offline caching, dynamic version detection, and instant upgrade activation.
  */
 
-const CACHE_NAME = 'triarch-cache-v1.0.0';
+const CACHE_NAME = 'triarch-cache-v1.1.0';
 
 const PRECACHE_ASSETS = [
   './',
   './index.html',
+  './version.json',
   './manifest.json',
   './triarch.svg',
   './icons/icon-192.png',
@@ -23,14 +24,24 @@ const PRECACHE_ASSETS = [
   './src/audio/sfx.js',
   './src/ui/visualizer.js',
   './src/ui/components.js',
+  './src/ui/toast.js',
+  './src/ui/tour.js',
   './src/ui/app.js'
 ];
+
+// Handle SKIP_WAITING message from client app
+self.addEventListener('message', (event) => {
+  if (event.data && event.data.type === 'SKIP_WAITING') {
+    console.log('[Service Worker] Received SKIP_WAITING, activating immediately...');
+    self.skipWaiting();
+  }
+});
 
 // Installation: Cache core shell and module assets
 self.addEventListener('install', (event) => {
   event.waitUntil(
     caches.open(CACHE_NAME).then((cache) => {
-      console.log('[Service Worker] Pre-caching offline assets...');
+      console.log(`[Service Worker] Pre-caching assets for ${CACHE_NAME}`);
       return cache.addAll(PRECACHE_ASSETS).catch((err) => {
         console.warn('[Service Worker] Pre-caching partial failure, proceeding:', err);
       });
@@ -38,7 +49,7 @@ self.addEventListener('install', (event) => {
   );
 });
 
-// Activation: Clean up stale legacy caches
+// Activation: Clean up stale legacy caches and claim clients
 self.addEventListener('activate', (event) => {
   event.waitUntil(
     caches.keys().then((cacheNames) => {
@@ -54,17 +65,25 @@ self.addEventListener('activate', (event) => {
   );
 });
 
-// Fetch Strategy: Stale-While-Revalidate for app assets with Network Fallback
+// Fetch Strategy: Network-First for version.json, Stale-While-Revalidate for app assets
 self.addEventListener('fetch', (event) => {
   const request = event.request;
 
-  // Ignore non-GET requests or chrome extension schemes
   if (request.method !== 'GET' || !request.url.startsWith('http')) {
     return;
   }
 
-  // Handle CDN resources (Tailwind / Fonts) with Cache-First then Network
   const url = new URL(request.url);
+
+  // version.json: Always Network-First (no-store fallback) to detect updates immediately
+  if (url.pathname.endsWith('version.json')) {
+    event.respondWith(
+      fetch(request, { cache: 'no-store' }).catch(() => caches.match(request))
+    );
+    return;
+  }
+
+  // CDN resources (Tailwind / Fonts) with Cache-First then Network
   const isCdn = url.hostname.includes('cdn') || 
                 url.hostname.includes('fonts.googleapis.com') || 
                 url.hostname.includes('fonts.gstatic.com') ||
@@ -90,7 +109,7 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // For app local resources: Stale-While-Revalidate
+  // App local resources: Stale-While-Revalidate with Navigation Fallback
   event.respondWith(
     caches.match(request).then((cachedResponse) => {
       const fetchPromise = fetch(request).then((networkResponse) => {
@@ -102,7 +121,6 @@ self.addEventListener('fetch', (event) => {
         }
         return networkResponse;
       }).catch(() => {
-        // If offline and requesting navigation, fallback to root index.html
         if (request.mode === 'navigate') {
           return caches.match('./index.html') || caches.match('/');
         }

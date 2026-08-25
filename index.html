@@ -9,6 +9,7 @@
   <meta name="description" content="Strategic 3-player non-transitive tabletop game powered by verified game theory and cyclic dice mathematics.">
   <meta name="theme-color" content="#090d16">
   <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="TRIARCH">
   <link rel="manifest" href="manifest.json">
@@ -79,8 +80,11 @@
 </head>
 <body class="font-sans antialiased selection:bg-indigo-500 selection:text-white flex flex-col min-h-screen">
 
+  <!-- Toast Notification Container (Floating) -->
+  <div id="toast-container" class="fixed top-16 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 pointer-events-none w-11/12 max-w-md items-center"></div>
+
   <!-- TOP APP BAR -->
-  <header class="sticky top-0 z-50 backdrop-blur-xl bg-slate-950/80 border-b border-slate-800/80 px-4 py-3 sm:px-6">
+  <header class="sticky top-0 z-40 backdrop-blur-xl bg-slate-950/85 border-b border-slate-800/80 px-4 py-3 sm:px-6">
     <div class="max-w-7xl mx-auto flex items-center justify-between">
       
       <!-- Brand & Logo -->
@@ -98,17 +102,27 @@
       <div class="flex items-center gap-2 sm:gap-3">
         <!-- Offline Indicator Badge -->
         <span id="offline-badge" class="hidden px-2.5 py-1 rounded-full bg-amber-950/80 border border-amber-500/50 text-amber-300 text-[11px] font-mono font-bold animate-pulse">
-          ⚡ Offline Mode
+          ⚡ Offline
         </span>
 
         <!-- PWA Install Button -->
         <button id="btn-pwa-install" class="hidden px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold font-mono transition-all shadow-[0_0_15px_#6366f160] flex items-center gap-1.5">
-          <span>📲</span> Install App
+          <span>📲</span> Install
+        </button>
+
+        <!-- Guided Tour Trigger Button -->
+        <button id="btn-show-tour" class="px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-700 hover:border-slate-500 text-slate-300 text-xs font-mono transition-all flex items-center gap-1">
+          <span>📖</span> Tour
         </button>
 
         <!-- SFX Toggle -->
-        <button id="btn-sound-toggle" class="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 hover:border-slate-500 text-slate-300 text-xs font-mono transition-all">
-          🔊 Sound FX
+        <button id="btn-sound-toggle" class="px-2.5 py-1.5 rounded-xl bg-slate-900 border border-slate-700 hover:border-slate-500 text-slate-300 text-xs font-mono transition-all">
+          🔊 SFX
+        </button>
+
+        <!-- Pristine Factory Reset Button -->
+        <button id="btn-pristine-reset" class="px-2 py-1.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-rose-500/40 text-slate-500 hover:text-rose-400 text-xs font-mono transition-all" title="Factory Reset (Clears cache, history & resets state)">
+          🔄
         </button>
       </div>
     </div>
@@ -148,7 +162,7 @@
               <h2 class="text-sm font-bold text-white uppercase tracking-wider font-mono">Cyclic Dominance Ring</h2>
               <p class="text-xs text-slate-400">P(A➔B) = P(B➔C) = P(C➔A) = 5/9 (55.6%)</p>
             </div>
-            <span class="text-xs px-2.5 py-0.5 rounded-full bg-indigo-950/80 border border-indigo-500/40 text-indigo-300 font-mono">Active</span>
+            <span class="text-xs px-2.5 py-0.5 rounded-full bg-indigo-950/80 border border-indigo-500/40 text-indigo-300 font-mono">Live Physics</span>
           </div>
 
           <!-- Interactive Canvas -->

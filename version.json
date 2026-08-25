@@ -1,0 +1,15 @@
+{
+  "name": "TRIARCH: Cyclic Edge",
+  "version": "1.1.0",
+  "buildTime": "2026-08-25T16:45:00Z",
+  "features": [
+    "Verified Non-Transitive Math Core",
+    "PWA Offline Support with Service Worker",
+    "Procedural Web Audio Engine",
+    "Interactive Cyclic Dominance Graph",
+    "Grime Paradox 2-Dice Inversion Explorer",
+    "First-Time Interactive Guided Tour",
+    "Dynamic Odds Matrix & Monte Carlo Simulator",
+    "Pristine Factory Reset & Settings Ledger"
+  ]
+}

@@ -1,6 +1,7 @@
 /**
  * TRIARCH: Cyclic Edge - Master Application Controller
- * Connects Game Engine, Math Core, Visualizers, Procedural Web Audio, and PWA Lifecycle.
+ * Connects Game Engine, Math Core, Visualizers, Procedural Web Audio,
+ * PWA Lifecycle, Automated Updates, Toast Notifications, and Guided Tour.
  */
 
 import { TRIARCH_STANDARD, DICE_PRESETS, Die } from '../math/dice.js';
@@ -14,6 +15,8 @@ import {
 import { GameStateManager } from '../game/state.js';
 import { SHARD_ITEMS, GAME_PHASES } from '../game/rules.js';
 import { sfx } from '../audio/sfx.js';
+import { toast } from './toast.js';
+import { tour } from './tour.js';
 import { CyclicGraphRenderer, createDiceVisual } from './visualizer.js';
 import {
   renderOddsMatrixHTML,
@@ -29,18 +32,21 @@ class TriarchApp {
     this.deferredPrompt = null;
     this.diceVisuals = {};
     this.graphRenderer = null;
+    this.currentBuildVersion = null;
 
     this.init();
   }
 
   init() {
     this.setupPWA();
+    this.setupAppUpdates();
     this.setupTabs();
     this.setupAudio();
     this.setupArena();
     this.setupSimulator();
     this.setupParadox();
     this.setupCodex();
+    this.setupTourAndReset();
 
     // Subscribe to game state
     this.game.subscribe(() => this.renderGameState());
@@ -50,11 +56,18 @@ class TriarchApp {
     this.renderSimulatorPreset();
     this.renderParadoxPreset();
 
-    // Handle deep-link tab parameter
+    // Deep-link tab parameter
     const params = new URLSearchParams(window.location.search);
     const tabParam = params.get('tab');
     if (tabParam && ['arena', 'simulator', 'paradox', 'codex'].includes(tabParam)) {
       this.switchTab(tabParam);
+    }
+
+    // First-time player guided tour
+    if (!localStorage.getItem('triarch_tour_completed')) {
+      setTimeout(() => {
+        tour.start();
+      }, 500);
     }
   }
 
@@ -69,19 +82,27 @@ class TriarchApp {
           pwaBadge.classList.add('hidden');
         } else {
           pwaBadge.classList.remove('hidden');
+          toast.show('Running in Offline Mode — full game & math core active!', 'warning', 3000);
         }
       }
     };
 
-    window.addEventListener('online', updateOnlineStatus);
+    window.addEventListener('online', () => {
+      updateOnlineStatus();
+      toast.show('Back Online! Connection restored.', 'success', 2500);
+    });
     window.addEventListener('offline', updateOnlineStatus);
     updateOnlineStatus();
+
+    // Standalone Detection
+    const isStandalone = window.matchMedia('(display-mode: standalone)').matches ||
+                         ('standalone' in navigator && navigator.standalone === true);
 
     // PWA Install Prompt Capture
     window.addEventListener('beforeinstallprompt', (e) => {
       e.preventDefault();
       this.deferredPrompt = e;
-      if (installBtn) {
+      if (installBtn && !isStandalone) {
         installBtn.classList.remove('hidden');
         installBtn.addEventListener('click', async () => {
           if (this.deferredPrompt) {
@@ -90,17 +111,156 @@ class TriarchApp {
             console.log(`[PWA] Install prompt outcome: ${outcome}`);
             this.deferredPrompt = null;
             installBtn.classList.add('hidden');
+            if (outcome === 'accepted') {
+              toast.show('TRIARCH installed to your home screen!', 'success');
+            }
           }
         });
       }
     });
 
-    // Register Service Worker
+    window.addEventListener('appinstalled', () => {
+      this.deferredPrompt = null;
+      if (installBtn) installBtn.classList.add('hidden');
+      toast.show('TRIARCH app installed successfully!', 'success');
+    });
+
+    // Register Service Worker with instant controllerchange handling
     if ('serviceWorker' in navigator) {
+      let refreshing = false;
+      navigator.serviceWorker.addEventListener('controllerchange', () => {
+        if (!refreshing) {
+          refreshing = true;
+          console.log('[PWA Update] New version active! Reloading...');
+          window.location.reload();
+        }
+      });
+
       window.addEventListener('load', () => {
         navigator.serviceWorker.register('./sw.js')
-          .then((reg) => console.log('[PWA] ServiceWorker registered:', reg.scope))
+          .then((reg) => {
+            console.log('[PWA] ServiceWorker registered with scope:', reg.scope);
+            reg.update().catch(() => {});
+          })
           .catch((err) => console.warn('[PWA] ServiceWorker registration failed:', err));
+      });
+    }
+  }
+
+  /* ---------------- Automated Version Update Poller ---------------- */
+  setupAppUpdates() {
+    const checkForVersionUpdate = async () => {
+      // 1. Service Worker update check
+      if ('serviceWorker' in navigator) {
+        try {
+          const reg = await navigator.serviceWorker.getRegistration();
+          if (reg) {
+            reg.update().catch(() => {});
+            if (reg.waiting) {
+              this.notifyUpdateAvailable(reg.waiting);
+              return;
+            }
+            reg.onupdatefound = () => {
+              const installing = reg.installing;
+              if (installing) {
+                installing.onstatechange = () => {
+                  if (installing.state === 'installed' && navigator.serviceWorker.controller) {
+                    this.notifyUpdateAvailable(installing);
+                  }
+                };
+              }
+            };
+          }
+        } catch (e) {}
+      }
+
+      // 2. HTTP Fallback version.json check
+      try {
+        const res = await fetch(`./version.json?t=${Date.now()}`, {
+          cache: 'no-store',
+          headers: { 'Cache-Control': 'no-cache, no-store, must-revalidate' }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.version) {
+            if (!this.currentBuildVersion) {
+              this.currentBuildVersion = data.version;
+            } else if (this.currentBuildVersion !== data.version) {
+              this.notifyUpdateAvailable(null, data.version);
+            }
+          }
+        }
+      } catch (e) {}
+    };
+
+    checkForVersionUpdate();
+    setInterval(checkForVersionUpdate, 30000);
+    window.addEventListener('focus', checkForVersionUpdate);
+    window.addEventListener('online', checkForVersionUpdate);
+  }
+
+  notifyUpdateAvailable(workerInstance, newVer = '') {
+    toast.show(
+      `New TRIARCH update available ${newVer ? `(${newVer})` : ''}!`,
+      'info',
+      0, // persistent until clicked
+      {
+        label: 'Update Now',
+        onClick: () => {
+          if (workerInstance) {
+            workerInstance.postMessage({ type: 'SKIP_WAITING' });
+          } else if (navigator.serviceWorker && navigator.serviceWorker.controller) {
+            navigator.serviceWorker.controller.postMessage({ type: 'SKIP_WAITING' });
+          }
+          if (typeof caches !== 'undefined') {
+            caches.keys().then((keys) => Promise.all(keys.map((k) => caches.delete(k))))
+              .finally(() => window.location.reload());
+          } else {
+            window.location.reload();
+          }
+        }
+      }
+    );
+  }
+
+  /* ---------------- Tour & Factory Reset ---------------- */
+  setupTourAndReset() {
+    const btnTour = document.getElementById('btn-show-tour');
+    if (btnTour) {
+      btnTour.addEventListener('click', () => {
+        sfx.playClick();
+        tour.start();
+      });
+    }
+
+    const btnReset = document.getElementById('btn-pristine-reset');
+    if (btnReset) {
+      btnReset.addEventListener('click', async () => {
+        const confirmed = window.confirm(
+          'Reset TRIARCH to pristine initial state?\n\n' +
+          '• Clears local match history and custom scores\n' +
+          '• Clears browser cache & Service Worker registrations\n' +
+          '• Restores default sound and display preferences\n' +
+          '• Relaunches the interactive Getting Started tour'
+        );
+        if (!confirmed) return;
+
+        try {
+          localStorage.clear();
+          sessionStorage.clear();
+          if (typeof caches !== 'undefined') {
+            const keys = await caches.keys();
+            await Promise.all(keys.map((k) => caches.delete(k)));
+          }
+          if ('serviceWorker' in navigator) {
+            const regs = await navigator.serviceWorker.getRegistrations();
+            await Promise.all(regs.map((r) => r.unregister()));
+          }
+        } catch (err) {
+          console.warn('Reset error:', err);
+        }
+
+        window.location.href = window.location.pathname;
       });
     }
   }
@@ -155,7 +315,12 @@ class TriarchApp {
       muteBtn.addEventListener('click', () => {
         const isMuted = sfx.toggleMute();
         updateIcon();
-        if (!isMuted) sfx.playClick();
+        if (!isMuted) {
+          sfx.playClick();
+          toast.show('Sound Effects Enabled', 'info', 1500);
+        } else {
+          toast.show('Sound Effects Muted', 'info', 1500);
+        }
       });
     }
   }
@@ -197,6 +362,7 @@ class TriarchApp {
       resetBtn.addEventListener('click', () => {
         sfx.playClick();
         this.game.init();
+        toast.show('Match reset! Ready for a new cyclic showdown.', 'info', 2000);
       });
     }
 
@@ -207,14 +373,26 @@ class TriarchApp {
     if (btnShardMight) {
       btnShardMight.addEventListener('click', () => {
         sfx.playClick();
-        this.game.activateShard('ruby', 'MIGHT');
+        const success = this.game.activateShard('ruby', 'MIGHT');
+        if (success) {
+          const active = this.game.players.ruby.activeShard === 'MIGHT';
+          toast.show(active ? '⚡ Vortex Shard activated (+1 Face Boost)!' : 'Vortex Shard deactivated.', 'info', 2000);
+        } else {
+          toast.show('Not enough Shards to activate Vortex Boost (Costs 1 Shard)', 'warning', 2500);
+        }
       });
     }
 
     if (btnShardShield) {
       btnShardShield.addEventListener('click', () => {
         sfx.playClick();
-        this.game.activateShard('ruby', 'SHIELD');
+        const success = this.game.activateShard('ruby', 'SHIELD');
+        if (success) {
+          const active = this.game.players.ruby.activeShard === 'SHIELD';
+          toast.show(active ? '🛡️ Aegis Shield activated (Wins Tiebreaks)!' : 'Aegis Shield deactivated.', 'info', 2000);
+        } else {
+          toast.show('Not enough Shards to activate Aegis Shield (Costs 1 Shard)', 'warning', 2500);
+        }
       });
     }
   }
@@ -240,6 +418,9 @@ class TriarchApp {
         sfx.playClash();
         if (clashRecord.winnerId) {
           sfx.playDominanceChime();
+          toast.show(clashRecord.reason, clashRecord.winnerId === 'ruby' ? 'success' : 'info', 3000);
+        } else {
+          toast.show(clashRecord.reason, 'warning', 3000);
         }
         if (rollBtn) rollBtn.disabled = false;
       }
@@ -340,6 +521,7 @@ class TriarchApp {
         sfx.playClick();
         this.currentPresetKey = e.target.value;
         this.renderSimulatorPreset();
+        toast.show(`Switched to preset: ${DICE_PRESETS[this.currentPresetKey].name}`, 'info', 2000);
       });
     }
 
@@ -437,6 +619,7 @@ class TriarchApp {
           </div>
         </div>
       `;
+      toast.show('Monte Carlo verification converged against analytical proof!', 'success', 2500);
     }, 150);
   }
 
@@ -449,7 +632,6 @@ class TriarchApp {
     const container = document.getElementById('paradox-comparisons-list');
     if (!container) return;
 
-    // Compare all 5 consecutive pairs of Grime Dice
     const grime = DICE_PRESETS.grime.dice;
     const comparisons = [
       [grime[0], grime[1]], // Red vs Blue
@@ -464,11 +646,11 @@ class TriarchApp {
 
   /* ---------------- Codex Setup ---------------- */
   setupCodex() {
-    // Codex tab contains static markdown/HTML documentation
+    // Codex static content
   }
 }
 
-// Instantiate on DOM load
+// Initialize on DOM load
 window.addEventListener('DOMContentLoaded', () => {
   window.triarchApp = new TriarchApp();
 });
