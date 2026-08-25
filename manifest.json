@@ -1,0 +1,61 @@
+{
+  "name": "TRIARCH: Cyclic Edge",
+  "short_name": "TRIARCH",
+  "description": "Strategic 3-player non-transitive tabletop game powered by verified game theory and cyclic dice mathematics.",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "orientation": "any",
+  "background_color": "#05070d",
+  "theme_color": "#090d16",
+  "categories": ["games", "strategy", "education", "utilities"],
+  "icons": [
+    {
+      "src": "icons/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any"
+    },
+    {
+      "src": "icons/icon-maskable.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "maskable"
+    },
+    {
+      "src": "triarch.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Quick Arena Battle",
+      "short_name": "Arena",
+      "description": "Start a 3-player non-transitive clash",
+      "url": "./index.html?tab=arena",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Math Simulator",
+      "short_name": "Math Core",
+      "description": "Analyze non-transitive probability matrices",
+      "url": "./index.html?tab=simulator",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Paradox Explorer",
+      "short_name": "Paradox",
+      "description": "Explore the Grime 2-dice reversal paradox",
+      "url": "./index.html?tab=paradox",
+      "icons": [{ "src": "icons/icon-192.png", "sizes": "192x192" }]
+    }
+  ]
+}
