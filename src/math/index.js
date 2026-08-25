@@ -4,3 +4,4 @@
 
 export * from './dice.js';
 export * from './probability.js';
+export * from './inspector-math.js';

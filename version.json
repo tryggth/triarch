@@ -1,9 +1,13 @@
 {
   "name": "TRIARCH: Cyclic Edge",
-  "version": "1.2.0",
-  "buildTime": "2026-08-25T16:50:00Z",
+  "version": "1.3.0",
+  "buildTime": "2026-08-25T16:53:00Z",
   "features": [
-    "Verified Non-Transitive Math Core",
+    "Penrose Tri-Die Vector Background Watermark",
+    "CSS 3D Preserved Transform Tumbling Dice Engine",
+    "Real-Time Analytical Odds Inspector (Bayesian Meters)",
+    "Game Theory Audit Ledger & Chronicle",
+    "Verified Non-Transitive Math Core & Discrete Convolutions",
     "3-Node WebRTC P2P Mesh Networking",
     "Serverless Room Discovery (Short Codes & SVG QR Codes)",
     "Cryptographic SHA-256 Commit-Reveal (Stance Concealment)",

@@ -37,6 +37,15 @@
             ruby: { 400: '#fb7185', 500: '#f43f5e', 600: '#e11d48' },
             cyan: { 400: '#22d3ee', 500: '#06b6d4', 600: '#0891b2' },
             amber: { 400: '#facc15', 500: '#eab308', 600: '#ca8a04' }
+          },
+          animation: {
+            'spin-slow': 'spin 120s linear infinite',
+            'fade-in': 'fadeIn 0.25s ease-out',
+            'scale-in': 'scaleIn 0.25s cubic-bezier(0.16, 1, 0.3, 1)'
+          },
+          keyframes: {
+            fadeIn: { '0%': { opacity: '0' }, '100%': { opacity: '1' } },
+            scaleIn: { '0%': { opacity: '0', transform: 'scale(0.95)' }, '100%': { opacity: '1', transform: 'scale(1)' } }
           }
         }
       }
@@ -100,6 +109,11 @@
 
       <!-- Header Controls -->
       <div class="flex items-center gap-2 sm:gap-3">
+        <!-- Live Odds Inspector Button -->
+        <button id="btn-toggle-odds" class="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 hover:border-indigo-500/50 text-indigo-300 text-xs font-bold font-mono transition-all shadow-sm flex items-center gap-1.5">
+          <span>📊</span> Odds
+        </button>
+
         <!-- Multiplayer Lobby Button -->
         <button id="btn-open-lobby" class="px-3 py-1.5 rounded-xl bg-indigo-600/90 hover:bg-indigo-600 text-white text-xs font-bold font-mono transition-all shadow-[0_0_15px_#6366f140] flex items-center gap-1.5">
           <span>🌐</span> Lobby
@@ -161,27 +175,38 @@
       <!-- Arena Overview Grid -->
       <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
         
-        <!-- Left: Cyclic Tournament Graph Visualizer -->
-        <div class="lg:col-span-5 p-5 rounded-3xl border border-slate-800 bg-slate-950/60 backdrop-blur-xl shadow-2xl flex flex-col items-center justify-between">
-          <div class="w-full flex items-center justify-between mb-2">
-            <div>
-              <h2 class="text-sm font-bold text-white uppercase tracking-wider font-mono">Cyclic Dominance Ring</h2>
-              <p class="text-xs text-slate-400">P(A➔B) = P(B➔C) = P(C➔A) = 5/9 (55.6%)</p>
+        <!-- Left Column: Cyclic Tournament Graph Visualizer & Match Ledger -->
+        <div class="lg:col-span-5 space-y-6">
+          <div class="p-5 rounded-3xl border border-slate-800 bg-slate-950/60 backdrop-blur-xl shadow-2xl flex flex-col items-center justify-between">
+            <div class="w-full flex items-center justify-between mb-2">
+              <div>
+                <h2 class="text-sm font-bold text-white uppercase tracking-wider font-mono">Cyclic Dominance Ring</h2>
+                <p class="text-xs text-slate-400">P(A➔B) = P(B➔C) = P(C➔A) = 5/9 (55.6%)</p>
+              </div>
+              <span class="text-xs px-2.5 py-0.5 rounded-full bg-indigo-950/80 border border-indigo-500/40 text-indigo-300 font-mono">Live Physics</span>
             </div>
-            <span class="text-xs px-2.5 py-0.5 rounded-full bg-indigo-950/80 border border-indigo-500/40 text-indigo-300 font-mono">Live Physics</span>
+
+            <!-- Interactive Canvas -->
+            <div class="relative w-full aspect-square max-w-[340px] flex items-center justify-center my-2">
+              <canvas id="cyclic-graph-canvas" class="w-full h-full"></canvas>
+            </div>
+
+            <div class="w-full text-center text-[11px] font-mono text-slate-500 bg-slate-900/60 py-2 px-3 rounded-xl border border-slate-800/80">
+              Directed particles illustrate cyclic advantage flow in real-time.
+            </div>
           </div>
 
-          <!-- Interactive Canvas -->
-          <div class="relative w-full aspect-square max-w-[340px] flex items-center justify-center my-2">
-            <canvas id="cyclic-graph-canvas" class="w-full h-full"></canvas>
-          </div>
-
-          <div class="w-full text-center text-[11px] font-mono text-slate-500 bg-slate-900/60 py-2 px-3 rounded-xl border border-slate-800/80">
-            Directed particles illustrate cyclic advantage flow in real-time.
+          <!-- Audit Ledger Historical Record -->
+          <div class="space-y-2">
+            <div class="flex items-center justify-between">
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Game Theory Audit Chronicle</h3>
+              <span class="text-[10px] font-mono text-slate-500">Immutable Ledger</span>
+            </div>
+            <div id="audit-ledger-mount" class="max-h-72 overflow-y-auto pr-1"></div>
           </div>
         </div>
 
-        <!-- Right: Combat Arena & Player HUDs -->
+        <!-- Right Column: Central Battlefield Stage & Combat Controls -->
         <div class="lg:col-span-7 space-y-6">
           
           <!-- Round Info & Actions Banner -->
@@ -204,51 +229,35 @@
             <div id="hud-amber"></div>
           </div>
 
-          <!-- Tactile Dice Roll Visual Arena -->
-          <div class="p-6 rounded-3xl border border-slate-800 bg-gradient-to-b from-slate-900/80 to-slate-950/90 backdrop-blur-xl shadow-2xl space-y-6">
-            <div class="grid grid-cols-3 gap-3 sm:gap-6">
-              <div id="die-visual-ruby"></div>
-              <div id="die-visual-cyan"></div>
-              <div id="die-visual-amber"></div>
+          <!-- Central Battlefield Stage with Watermark & 3D Tumbling Cubes -->
+          <div id="board-stage-mount" class="relative"></div>
+
+          <!-- Action & Shard Bar -->
+          <div class="p-4 rounded-2xl border border-slate-800 bg-slate-950/70 backdrop-blur-md flex flex-col sm:flex-row items-center justify-between gap-4">
+            
+            <!-- Shard Power-Ups & Stance Concealment -->
+            <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+              <span class="text-xs font-mono text-slate-400">Actions:</span>
+              <button id="btn-shard-might" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-mono text-amber-300 transition-all flex items-center justify-center gap-1" title="Costs 1 Shard: +1 Face Boost">
+                ⚡ +1 Boost
+              </button>
+              <button id="btn-shard-shield" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-mono text-cyan-300 transition-all flex items-center justify-center gap-1" title="Costs 1 Shard: Wins Tiebreaks">
+                🛡️ Shield
+              </button>
+              <button id="btn-stance-conceal" class="px-3 py-2 rounded-xl bg-purple-950 hover:bg-purple-900 border border-purple-500/40 text-xs font-mono text-purple-200 transition-all flex items-center justify-center gap-1 shadow-sm" title="Zero-Knowledge SHA-256 Commit-Reveal">
+                🔒 Conceal Stance
+              </button>
             </div>
 
-            <!-- Dynamic Result Box -->
-            <div id="arena-result-box" class="hidden"></div>
-
-            <!-- Player Action Bar -->
-            <div class="pt-2 flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-slate-800/80">
-              
-              <!-- Shard Power-Ups & Stance Concealment -->
-              <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-                <span class="text-xs font-mono text-slate-400">Actions:</span>
-                <button id="btn-shard-might" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-mono text-amber-300 transition-all flex items-center justify-center gap-1" title="Costs 1 Shard: +1 Face Boost">
-                  ⚡ +1 Boost
-                </button>
-                <button id="btn-shard-shield" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-mono text-cyan-300 transition-all flex items-center justify-center gap-1" title="Costs 1 Shard: Wins Tiebreaks">
-                  🛡️ Shield
-                </button>
-                <button id="btn-stance-conceal" class="px-3 py-2 rounded-xl bg-purple-950 hover:bg-purple-900 border border-purple-500/40 text-xs font-mono text-purple-200 transition-all flex items-center justify-center gap-1 shadow-sm" title="Zero-Knowledge SHA-256 Commit-Reveal">
-                  🔒 Conceal Stance
-                </button>
-              </div>
-
-              <!-- Roll & Next Round Execution Buttons -->
-              <div class="w-full sm:w-auto">
-                <button id="btn-arena-roll" class="w-full sm:w-auto px-8 py-3 rounded-2xl bg-gradient-to-r from-rose-500 via-indigo-600 to-cyan-500 hover:opacity-95 text-white font-bold font-mono text-sm tracking-wider shadow-[0_0_30px_#6366f160] transition-all transform active:scale-95">
-                  🎲 ROLL CLASH
-                </button>
-                <button id="btn-arena-next" class="hidden w-full sm:w-auto px-8 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold font-mono text-sm tracking-wider shadow-[0_0_20px_#6366f180] transition-all">
-                  Next Round ➔
-                </button>
-              </div>
+            <!-- Roll & Next Round Execution Buttons -->
+            <div class="w-full sm:w-auto">
+              <button id="btn-arena-roll" class="w-full sm:w-auto px-8 py-3 rounded-2xl bg-gradient-to-r from-rose-500 via-indigo-600 to-cyan-500 hover:opacity-95 text-white font-bold font-mono text-sm tracking-wider shadow-[0_0_30px_#6366f160] transition-all transform active:scale-95">
+                🎲 ROLL CLASH
+              </button>
+              <button id="btn-arena-next" class="hidden w-full sm:w-auto px-8 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold font-mono text-sm tracking-wider shadow-[0_0_20px_#6366f180] transition-all">
+                Next Round ➔
+              </button>
             </div>
-
-          </div>
-
-          <!-- Clash Timeline / History Log -->
-          <div class="p-5 rounded-3xl border border-slate-800 bg-slate-950/60 backdrop-blur-md space-y-3">
-            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Combat Chronicle</h3>
-            <div id="arena-history-list" class="space-y-2 max-h-48 overflow-y-auto pr-1"></div>
           </div>
 
         </div>

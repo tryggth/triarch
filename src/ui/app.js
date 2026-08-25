@@ -1,7 +1,7 @@
 /**
  * TRIARCH: Cyclic Edge - Master Application Controller
  * Connects Game Engine, Math Core, Visualizers, Procedural Web Audio,
- * PWA Lifecycle, WebRTC P2P Mesh, and Cryptographic Commit-Reveal.
+ * PWA Lifecycle, WebRTC P2P Mesh, 3D Board View & Live Odds Inspector.
  */
 
 import { TRIARCH_STANDARD, DICE_PRESETS, Die } from '../math/dice.js';
@@ -20,7 +20,10 @@ import { sfx } from '../audio/sfx.js';
 import { toast } from './toast.js';
 import { tour } from './tour.js';
 import { MultiplayerLobbyModal } from './lobby-view.js';
-import { CyclicGraphRenderer, createDiceVisual } from './visualizer.js';
+import { BoardStageManager } from './board-view.js';
+import { OddsInspectorDrawer } from './odds-inspector.js';
+import { AuditLedgerView } from './audit-ledger.js';
+import { CyclicGraphRenderer } from './visualizer.js';
 import {
   renderOddsMatrixHTML,
   renderPlayerHUDHTML,
@@ -33,11 +36,13 @@ class TriarchApp {
     this.mesh = new PeerMeshManager();
     this.net = new NetworkGameStateAdapter(this.game, this.mesh);
     this.lobbyModal = new MultiplayerLobbyModal(this.mesh, this.net);
+    this.oddsInspector = new OddsInspectorDrawer(this.game);
 
     this.currentPresetKey = 'triarch';
     this.activeTab = 'arena';
     this.deferredPrompt = null;
-    this.diceVisuals = {};
+    this.boardStage = null;
+    this.auditLedger = null;
     this.graphRenderer = null;
     this.currentBuildVersion = null;
 
@@ -50,6 +55,7 @@ class TriarchApp {
     this.setupTabs();
     this.setupAudio();
     this.setupMultiplayer();
+    this.setupInspector();
     this.setupArena();
     this.setupSimulator();
     this.setupParadox();
@@ -237,6 +243,17 @@ class TriarchApp {
     );
   }
 
+  /* ---------------- Odds Inspector Setup ---------------- */
+  setupInspector() {
+    const btnInspector = document.getElementById('btn-toggle-odds');
+    if (btnInspector) {
+      btnInspector.addEventListener('click', () => {
+        sfx.playClick();
+        this.oddsInspector.toggle();
+      });
+    }
+  }
+
   /* ---------------- Multiplayer Integration ---------------- */
   setupMultiplayer() {
     const btnLobby = document.getElementById('btn-open-lobby');
@@ -370,14 +387,17 @@ class TriarchApp {
       this.graphRenderer = new CyclicGraphRenderer(canvas);
     }
 
-    // Dice visual containers
-    const cRuby = document.getElementById('die-visual-ruby');
-    const cCyan = document.getElementById('die-visual-cyan');
-    const cAmber = document.getElementById('die-visual-amber');
+    // Initialize 3D Board Battlefield Stage (with Watermark & 3D Tumbling Cubes)
+    const boardContainer = document.getElementById('board-stage-mount');
+    if (boardContainer) {
+      this.boardStage = new BoardStageManager(boardContainer);
+    }
 
-    if (cRuby) this.diceVisuals.ruby = createDiceVisual(cRuby, TRIARCH_STANDARD[0]);
-    if (cCyan) this.diceVisuals.cyan = createDiceVisual(cCyan, TRIARCH_STANDARD[1]);
-    if (cAmber) this.diceVisuals.amber = createDiceVisual(cAmber, TRIARCH_STANDARD[2]);
+    // Initialize Audit Ledger
+    const ledgerMount = document.getElementById('audit-ledger-mount');
+    if (ledgerMount) {
+      this.auditLedger = new AuditLedgerView(this.game, ledgerMount);
+    }
 
     // Clash Button
     const rollBtn = document.getElementById('btn-arena-roll');
@@ -390,6 +410,7 @@ class TriarchApp {
     if (nextBtn) {
       nextBtn.addEventListener('click', () => {
         sfx.playClick();
+        if (this.boardStage) this.boardStage.hideResult();
         this.game.nextRound();
       });
     }
@@ -399,6 +420,7 @@ class TriarchApp {
     if (resetBtn) {
       resetBtn.addEventListener('click', () => {
         sfx.playClick();
+        if (this.boardStage) this.boardStage.hideResult();
         this.game.init();
         toast.show('Match reset! Ready for a new cyclic showdown.', 'info', 2000);
       });
@@ -451,8 +473,6 @@ class TriarchApp {
     const rollBtn = document.getElementById('btn-arena-roll');
     if (rollBtn) rollBtn.disabled = true;
 
-    sfx.playDiceRoll();
-
     // Execute game clash via network adapter
     const clashRecord = await this.net.executeClash();
     if (!clashRecord) {
@@ -460,15 +480,9 @@ class TriarchApp {
       return;
     }
 
-    // Animate visual dice
-    const rRoll = clashRecord.rolls.ruby.raw;
-    const cRoll = clashRecord.rolls.cyan.raw;
-    const aRoll = clashRecord.rolls.amber.raw;
-
-    let completedCount = 0;
-    const checkDone = () => {
-      completedCount++;
-      if (completedCount === 3) {
+    // Trigger 3D Tumbling Cube Showdown on the Board Stage
+    if (this.boardStage) {
+      await this.boardStage.rollCombatShowdown(clashRecord.rolls, () => {
         sfx.playClash();
         if (clashRecord.winnerId) {
           sfx.playDominanceChime();
@@ -476,15 +490,12 @@ class TriarchApp {
         } else {
           toast.show(clashRecord.reason, 'warning', 3000);
         }
+        this.boardStage.showResult(clashRecord.reason, clashRecord.winnerId);
         if (rollBtn) rollBtn.disabled = false;
-      }
-    };
+      });
+    }
 
-    if (this.diceVisuals.ruby) this.diceVisuals.ruby.roll(rRoll, checkDone);
-    if (this.diceVisuals.cyan) this.diceVisuals.cyan.roll(cRoll, checkDone);
-    if (this.diceVisuals.amber) this.diceVisuals.amber.roll(aRoll, checkDone);
-
-    // Highlight winning directed edge
+    // Highlight winning directed edge on the live cyclic graph
     if (clashRecord.winnerId && this.graphRenderer) {
       if (clashRecord.winnerId === 'ruby') this.graphRenderer.highlightEdge('ruby', 'cyan');
       else if (clashRecord.winnerId === 'cyan') this.graphRenderer.highlightEdge('cyan', 'amber');
@@ -518,42 +529,16 @@ class TriarchApp {
     // Action / Next Round Controls
     const rollBtn = document.getElementById('btn-arena-roll');
     const nextBtn = document.getElementById('btn-arena-next');
-    const resultBox = document.getElementById('arena-result-box');
 
     if (this.game.phase === GAME_PHASES.DEPLOY) {
       if (rollBtn) rollBtn.classList.remove('hidden');
       if (nextBtn) nextBtn.classList.add('hidden');
-      if (resultBox) resultBox.classList.add('hidden');
     } else if (this.game.phase === GAME_PHASES.RESOLUTION) {
       if (rollBtn) rollBtn.classList.add('hidden');
       if (nextBtn) nextBtn.classList.remove('hidden');
-      if (resultBox && this.game.lastClashResult) {
-        resultBox.classList.remove('hidden');
-        resultBox.innerHTML = `
-          <div class="p-4 rounded-xl border border-indigo-500/40 bg-slate-900/90 text-center shadow-lg animate-fade-in">
-            <div class="text-xs font-mono uppercase tracking-wider text-indigo-400 font-bold">Round ${this.game.lastClashResult.roundNumber} Resolution</div>
-            <div class="text-base font-bold text-white mt-1">${this.game.lastClashResult.reason}</div>
-            <div class="text-xs font-mono text-slate-400 mt-2">
-              Rolls: Ruby <span class="text-rose-400 font-bold">${this.game.lastClashResult.rolls.ruby.modified}</span> · 
-              Cyan <span class="text-cyan-400 font-bold">${this.game.lastClashResult.rolls.cyan.modified}</span> · 
-              Amber <span class="text-amber-400 font-bold">${this.game.lastClashResult.rolls.amber.modified}</span>
-            </div>
-          </div>
-        `;
-      }
     } else if (this.game.phase === GAME_PHASES.GAME_OVER) {
       if (rollBtn) rollBtn.classList.add('hidden');
       if (nextBtn) nextBtn.classList.add('hidden');
-      if (resultBox && this.game.winner) {
-        resultBox.classList.remove('hidden');
-        resultBox.innerHTML = `
-          <div class="p-6 rounded-2xl border-2 border-amber-400 bg-gradient-to-b from-amber-950/80 to-slate-950 text-center shadow-2xl animate-bounce">
-            <div class="text-2xl font-black text-amber-300">👑 MATCH VICTORY! 👑</div>
-            <div class="text-lg font-bold text-white mt-2">${this.game.winner.name} has claimed the Triarch Cyclic Throne!</div>
-            <div class="text-xs font-mono text-amber-200/80 mt-2">Dominance Points: ${this.game.winner.score} / ${this.game.mode.targetScore}</div>
-          </div>
-        `;
-      }
     }
 
     // Render Round History

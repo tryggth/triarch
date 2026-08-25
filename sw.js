@@ -3,7 +3,7 @@
  * Robust offline caching, WebRTC P2P mesh support, and instant upgrade activation.
  */
 
-const CACHE_NAME = 'triarch-cache-v1.2.0';
+const CACHE_NAME = 'triarch-cache-v1.3.0';
 
 const PRECACHE_ASSETS = [
   './',
@@ -23,6 +23,7 @@ const PRECACHE_ASSETS = [
   './src/network/index.js',
   './src/math/dice.js',
   './src/math/probability.js',
+  './src/math/inspector-math.js',
   './src/math/index.js',
   './src/game/rules.js',
   './src/game/bots.js',
@@ -30,6 +31,9 @@ const PRECACHE_ASSETS = [
   './src/game/network-state.js',
   './src/game/index.js',
   './src/audio/sfx.js',
+  './src/ui/board-view.js',
+  './src/ui/odds-inspector.js',
+  './src/ui/audit-ledger.js',
   './src/ui/visualizer.js',
   './src/ui/components.js',
   './src/ui/toast.js',
