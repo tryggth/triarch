@@ -1,9 +1,9 @@
 /**
  * TRIARCH: Cyclic Edge - Service Worker
- * Robust offline caching, dynamic version detection, and instant upgrade activation.
+ * Robust offline caching, WebRTC P2P mesh support, and instant upgrade activation.
  */
 
-const CACHE_NAME = 'triarch-cache-v1.1.0';
+const CACHE_NAME = 'triarch-cache-v1.2.0';
 
 const PRECACHE_ASSETS = [
   './',
@@ -14,18 +14,28 @@ const PRECACHE_ASSETS = [
   './icons/icon-192.png',
   './icons/icon-512.png',
   './icons/icon-maskable.png',
+  './assets/qr-scanner.min.js',
+  './src/crypto/commit.js',
+  './src/crypto/index.js',
+  './src/network/protocol.js',
+  './src/network/signaling.js',
+  './src/network/peer-mesh.js',
+  './src/network/index.js',
   './src/math/dice.js',
   './src/math/probability.js',
   './src/math/index.js',
   './src/game/rules.js',
   './src/game/bots.js',
   './src/game/state.js',
+  './src/game/network-state.js',
   './src/game/index.js',
   './src/audio/sfx.js',
   './src/ui/visualizer.js',
   './src/ui/components.js',
   './src/ui/toast.js',
   './src/ui/tour.js',
+  './src/ui/qr.js',
+  './src/ui/lobby-view.js',
   './src/ui/app.js'
 ];
 

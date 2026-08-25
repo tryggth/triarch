@@ -1,7 +1,7 @@
 /**
  * TRIARCH: Cyclic Edge - Master Application Controller
  * Connects Game Engine, Math Core, Visualizers, Procedural Web Audio,
- * PWA Lifecycle, Automated Updates, Toast Notifications, and Guided Tour.
+ * PWA Lifecycle, WebRTC P2P Mesh, and Cryptographic Commit-Reveal.
  */
 
 import { TRIARCH_STANDARD, DICE_PRESETS, Die } from '../math/dice.js';
@@ -13,10 +13,13 @@ import {
   calculateMultiDicePairwise
 } from '../math/probability.js';
 import { GameStateManager } from '../game/state.js';
+import { NetworkGameStateAdapter } from '../game/network-state.js';
+import { PeerMeshManager } from '../network/peer-mesh.js';
 import { SHARD_ITEMS, GAME_PHASES } from '../game/rules.js';
 import { sfx } from '../audio/sfx.js';
 import { toast } from './toast.js';
 import { tour } from './tour.js';
+import { MultiplayerLobbyModal } from './lobby-view.js';
 import { CyclicGraphRenderer, createDiceVisual } from './visualizer.js';
 import {
   renderOddsMatrixHTML,
@@ -27,6 +30,10 @@ import {
 class TriarchApp {
   constructor() {
     this.game = new GameStateManager();
+    this.mesh = new PeerMeshManager();
+    this.net = new NetworkGameStateAdapter(this.game, this.mesh);
+    this.lobbyModal = new MultiplayerLobbyModal(this.mesh, this.net);
+
     this.currentPresetKey = 'triarch';
     this.activeTab = 'arena';
     this.deferredPrompt = null;
@@ -42,13 +49,14 @@ class TriarchApp {
     this.setupAppUpdates();
     this.setupTabs();
     this.setupAudio();
+    this.setupMultiplayer();
     this.setupArena();
     this.setupSimulator();
     this.setupParadox();
     this.setupCodex();
     this.setupTourAndReset();
 
-    // Subscribe to game state
+    // Subscribe to game state changes
     this.game.subscribe(() => this.renderGameState());
 
     // Initial renders
@@ -56,18 +64,24 @@ class TriarchApp {
     this.renderSimulatorPreset();
     this.renderParadoxPreset();
 
-    // Deep-link tab parameter
+    // Handle deep-link query parameters
     const params = new URLSearchParams(window.location.search);
+    const roomParam = params.get('room');
     const tabParam = params.get('tab');
-    if (tabParam && ['arena', 'simulator', 'paradox', 'codex'].includes(tabParam)) {
+
+    if (roomParam) {
+      setTimeout(() => {
+        this.lobbyModal.open(roomParam.toUpperCase());
+      }, 400);
+    } else if (tabParam && ['arena', 'simulator', 'paradox', 'codex'].includes(tabParam)) {
       this.switchTab(tabParam);
     }
 
     // First-time player guided tour
-    if (!localStorage.getItem('triarch_tour_completed')) {
+    if (!localStorage.getItem('triarch_tour_completed') && !roomParam) {
       setTimeout(() => {
         tour.start();
-      }, 500);
+      }, 600);
     }
   }
 
@@ -203,7 +217,7 @@ class TriarchApp {
     toast.show(
       `New TRIARCH update available ${newVer ? `(${newVer})` : ''}!`,
       'info',
-      0, // persistent until clicked
+      0,
       {
         label: 'Update Now',
         onClick: () => {
@@ -221,6 +235,30 @@ class TriarchApp {
         }
       }
     );
+  }
+
+  /* ---------------- Multiplayer Integration ---------------- */
+  setupMultiplayer() {
+    const btnLobby = document.getElementById('btn-open-lobby');
+    if (btnLobby) {
+      btnLobby.addEventListener('click', () => {
+        sfx.playClick();
+        this.lobbyModal.open();
+      });
+    }
+
+    // Update lobby badge on seat changes
+    this.mesh.onSeatChange(() => {
+      const badge = document.getElementById('lobby-peer-badge');
+      if (badge) {
+        if (this.mesh.roomCode) {
+          badge.textContent = `Room ${this.mesh.roomCode}`;
+          badge.classList.remove('hidden');
+        } else {
+          badge.classList.add('hidden');
+        }
+      }
+    });
   }
 
   /* ---------------- Tour & Factory Reset ---------------- */
@@ -332,7 +370,7 @@ class TriarchApp {
       this.graphRenderer = new CyclicGraphRenderer(canvas);
     }
 
-    // Dice containers
+    // Dice visual containers
     const cRuby = document.getElementById('die-visual-ruby');
     const cCyan = document.getElementById('die-visual-cyan');
     const cAmber = document.getElementById('die-visual-amber');
@@ -366,19 +404,21 @@ class TriarchApp {
       });
     }
 
-    // Shard Power-Up Buttons for Human Player (Ruby)
+    // Shard Power-Up Buttons
     const btnShardMight = document.getElementById('btn-shard-might');
     const btnShardShield = document.getElementById('btn-shard-shield');
+    const btnStanceConceal = document.getElementById('btn-stance-conceal');
 
     if (btnShardMight) {
       btnShardMight.addEventListener('click', () => {
         sfx.playClick();
-        const success = this.game.activateShard('ruby', 'MIGHT');
+        const success = this.net.activateShard('MIGHT');
         if (success) {
-          const active = this.game.players.ruby.activeShard === 'MIGHT';
+          const seat = this.mesh.localSeat || 'ruby';
+          const active = this.game.players[seat].activeShard === 'MIGHT';
           toast.show(active ? '⚡ Vortex Shard activated (+1 Face Boost)!' : 'Vortex Shard deactivated.', 'info', 2000);
         } else {
-          toast.show('Not enough Shards to activate Vortex Boost (Costs 1 Shard)', 'warning', 2500);
+          toast.show('Not enough Shards for Vortex Boost (Costs 1 Shard)', 'warning', 2500);
         }
       });
     }
@@ -386,13 +426,23 @@ class TriarchApp {
     if (btnShardShield) {
       btnShardShield.addEventListener('click', () => {
         sfx.playClick();
-        const success = this.game.activateShard('ruby', 'SHIELD');
+        const success = this.net.activateShard('SHIELD');
         if (success) {
-          const active = this.game.players.ruby.activeShard === 'SHIELD';
+          const seat = this.mesh.localSeat || 'ruby';
+          const active = this.game.players[seat].activeShard === 'SHIELD';
           toast.show(active ? '🛡️ Aegis Shield activated (Wins Tiebreaks)!' : 'Aegis Shield deactivated.', 'info', 2000);
         } else {
-          toast.show('Not enough Shards to activate Aegis Shield (Costs 1 Shard)', 'warning', 2500);
+          toast.show('Not enough Shards for Aegis Shield (Costs 1 Shard)', 'warning', 2500);
         }
+      });
+    }
+
+    if (btnStanceConceal) {
+      btnStanceConceal.addEventListener('click', async () => {
+        sfx.playClick();
+        const seat = this.mesh.localSeat || 'ruby';
+        const currentDie = this.game.players[seat].currentDie;
+        await this.net.selectDie(currentDie.id, true);
       });
     }
   }
@@ -403,8 +453,12 @@ class TriarchApp {
 
     sfx.playDiceRoll();
 
-    // Execute game state clash
-    const clashRecord = this.game.executeClash();
+    // Execute game clash via network adapter
+    const clashRecord = await this.net.executeClash();
+    if (!clashRecord) {
+      if (rollBtn) rollBtn.disabled = false;
+      return;
+    }
 
     // Animate visual dice
     const rRoll = clashRecord.rolls.ruby.raw;
@@ -418,7 +472,7 @@ class TriarchApp {
         sfx.playClash();
         if (clashRecord.winnerId) {
           sfx.playDominanceChime();
-          toast.show(clashRecord.reason, clashRecord.winnerId === 'ruby' ? 'success' : 'info', 3000);
+          toast.show(clashRecord.reason, clashRecord.winnerId === (this.mesh.localSeat || 'ruby') ? 'success' : 'info', 3000);
         } else {
           toast.show(clashRecord.reason, 'warning', 3000);
         }
@@ -430,7 +484,7 @@ class TriarchApp {
     if (this.diceVisuals.cyan) this.diceVisuals.cyan.roll(cRoll, checkDone);
     if (this.diceVisuals.amber) this.diceVisuals.amber.roll(aRoll, checkDone);
 
-    // Highlight winning directed edge if winner exists
+    // Highlight winning directed edge
     if (clashRecord.winnerId && this.graphRenderer) {
       if (clashRecord.winnerId === 'ruby') this.graphRenderer.highlightEdge('ruby', 'cyan');
       else if (clashRecord.winnerId === 'cyan') this.graphRenderer.highlightEdge('cyan', 'amber');
@@ -443,9 +497,17 @@ class TriarchApp {
     const hudCyan = document.getElementById('hud-cyan');
     const hudAmber = document.getElementById('hud-amber');
 
-    if (hudRuby) hudRuby.innerHTML = renderPlayerHUDHTML(this.game.players.ruby);
-    if (hudCyan) hudCyan.innerHTML = renderPlayerHUDHTML(this.game.players.cyan);
-    if (hudAmber) hudAmber.innerHTML = renderPlayerHUDHTML(this.game.players.amber);
+    const getMeta = (seat) => {
+      const isLocal = (this.mesh.localSeat || 'ruby') === seat;
+      const isConcealed = this.net.peerCommitments.has(seat) && !this.net.peerReveals.has(seat) && !isLocal;
+      const peerId = this.mesh.seats[seat]?.peerId;
+      const latency = peerId ? this.mesh.latencies.get(peerId) : null;
+      return { isLocal, isConcealed, commitment: this.net.peerCommitments.get(seat), latency };
+    };
+
+    if (hudRuby) hudRuby.innerHTML = renderPlayerHUDHTML(this.game.players.ruby, getMeta('ruby'));
+    if (hudCyan) hudCyan.innerHTML = renderPlayerHUDHTML(this.game.players.cyan, getMeta('cyan'));
+    if (hudAmber) hudAmber.innerHTML = renderPlayerHUDHTML(this.game.players.amber, getMeta('amber'));
 
     // Turn info & Round Header
     const roundBanner = document.getElementById('arena-round-banner');
@@ -525,7 +587,6 @@ class TriarchApp {
       });
     }
 
-    // Monte Carlo Test Button
     const btnMonteCarlo = document.getElementById('btn-run-monte-carlo');
     if (btnMonteCarlo) {
       btnMonteCarlo.addEventListener('click', () => {

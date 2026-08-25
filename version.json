@@ -1,9 +1,12 @@
 {
   "name": "TRIARCH: Cyclic Edge",
-  "version": "1.1.0",
-  "buildTime": "2026-08-25T16:45:00Z",
+  "version": "1.2.0",
+  "buildTime": "2026-08-25T16:50:00Z",
   "features": [
     "Verified Non-Transitive Math Core",
+    "3-Node WebRTC P2P Mesh Networking",
+    "Serverless Room Discovery (Short Codes & SVG QR Codes)",
+    "Cryptographic SHA-256 Commit-Reveal (Stance Concealment)",
     "PWA Offline Support with Service Worker",
     "Procedural Web Audio Engine",
     "Interactive Cyclic Dominance Graph",

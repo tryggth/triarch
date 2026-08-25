@@ -100,13 +100,19 @@
 
       <!-- Header Controls -->
       <div class="flex items-center gap-2 sm:gap-3">
+        <!-- Multiplayer Lobby Button -->
+        <button id="btn-open-lobby" class="px-3 py-1.5 rounded-xl bg-indigo-600/90 hover:bg-indigo-600 text-white text-xs font-bold font-mono transition-all shadow-[0_0_15px_#6366f140] flex items-center gap-1.5">
+          <span>🌐</span> Lobby
+          <span id="lobby-peer-badge" class="hidden px-1.5 py-0.2 rounded-md bg-indigo-950 text-indigo-200 text-[10px]"></span>
+        </button>
+
         <!-- Offline Indicator Badge -->
         <span id="offline-badge" class="hidden px-2.5 py-1 rounded-full bg-amber-950/80 border border-amber-500/50 text-amber-300 text-[11px] font-mono font-bold animate-pulse">
           ⚡ Offline
         </span>
 
         <!-- PWA Install Button -->
-        <button id="btn-pwa-install" class="hidden px-3 py-1.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-bold font-mono transition-all shadow-[0_0_15px_#6366f160] flex items-center gap-1.5">
+        <button id="btn-pwa-install" class="hidden px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-bold font-mono transition-all flex items-center gap-1.5">
           <span>📲</span> Install
         </button>
 
@@ -212,14 +218,17 @@
             <!-- Player Action Bar -->
             <div class="pt-2 flex flex-col sm:flex-row items-center justify-between gap-4 border-t border-slate-800/80">
               
-              <!-- Shard Power-Ups -->
-              <div class="flex items-center gap-2 w-full sm:w-auto">
-                <span class="text-xs font-mono text-slate-400">Shards:</span>
-                <button id="btn-shard-might" class="flex-1 sm:flex-none px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-mono text-amber-300 transition-all flex items-center justify-center gap-1" title="Costs 1 Shard: +1 Face Boost">
+              <!-- Shard Power-Ups & Stance Concealment -->
+              <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto">
+                <span class="text-xs font-mono text-slate-400">Actions:</span>
+                <button id="btn-shard-might" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-mono text-amber-300 transition-all flex items-center justify-center gap-1" title="Costs 1 Shard: +1 Face Boost">
                   ⚡ +1 Boost
                 </button>
-                <button id="btn-shard-shield" class="flex-1 sm:flex-none px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-mono text-cyan-300 transition-all flex items-center justify-center gap-1" title="Costs 1 Shard: Wins Tiebreaks">
+                <button id="btn-shard-shield" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-mono text-cyan-300 transition-all flex items-center justify-center gap-1" title="Costs 1 Shard: Wins Tiebreaks">
                   🛡️ Shield
+                </button>
+                <button id="btn-stance-conceal" class="px-3 py-2 rounded-xl bg-purple-950 hover:bg-purple-900 border border-purple-500/40 text-xs font-mono text-purple-200 transition-all flex items-center justify-center gap-1 shadow-sm" title="Zero-Knowledge SHA-256 Commit-Reveal">
+                  🔒 Conceal Stance
                 </button>
               </div>
 
@@ -377,9 +386,23 @@
           </div>
         </div>
 
-        <!-- 3. Energy Shard Economy -->
+        <!-- 3. Cryptographic Stance Concealment -->
         <div class="space-y-3 border-t border-slate-800 pt-5">
-          <h3 class="text-base font-bold text-amber-300 font-mono">3. Energy Shard Economy</h3>
+          <h3 class="text-base font-bold text-purple-300 font-mono">3. Cryptographic Stance Concealment (Zero-Knowledge Commit-Reveal)</h3>
+          <p class="text-sm text-slate-300 leading-relaxed">
+            To prevent peer snooping and counter-picking in real-time P2P multiplayer, TRIARCH integrates native WebCrypto SHA-256:
+          </p>
+          <div class="p-4 rounded-xl bg-slate-900 border border-slate-800 space-y-2 text-xs font-mono text-purple-200">
+            <div>1. Commit: Salt = 32-byte secure hex; Hash = SHA-256(Die || Salt)</div>
+            <div>2. Broadcast: { type: 'DRAFT_COMMIT', commitment: '0x...' }</div>
+            <div>3. Reveal: { type: 'DRAFT_REVEAL', die: 'ruby-a', salt: '...' }</div>
+            <div>4. Verification: All peer nodes independently verify the SHA-256 digest before resolving clash.</div>
+          </div>
+        </div>
+
+        <!-- 4. Energy Shard Economy -->
+        <div class="space-y-3 border-t border-slate-800 pt-5">
+          <h3 class="text-base font-bold text-amber-300 font-mono">4. Energy Shard Economy</h3>
           <p class="text-sm text-slate-300 leading-relaxed">
             Players start each match with 2 Energy Shards. Winning a round awards +1 Shard. Shards can be expended prior to a clash:
           </p>

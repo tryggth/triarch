@@ -1,6 +1,7 @@
 /**
  * TRIARCH: Cyclic Edge - UI Components Library
- * Pure ES-module DOM renderers for HUDs, Probability Heatmaps, Action Log, and Paradox Analyzers.
+ * Pure ES-module DOM renderers for HUDs, Probability Heatmaps, Action Log,
+ * Stance Concealment Commit-Reveal Badges, and Network Latency Indicators.
  */
 
 import { calculatePairwiseProbabilities, calculateMultiDicePairwise } from '../math/probability.js';
@@ -65,11 +66,12 @@ export function renderOddsMatrixHTML(diceList) {
 }
 
 /**
- * Renders a Player HUD Banner with Shards, Score, and Status.
+ * Renders a Player HUD Banner with Shards, Score, Stance Concealment status, and Network Peer badges.
  * @param {import('../game/state.js').PlayerState} player
+ * @param {Object} [networkMeta={}]
  * @returns {string} HTML string
  */
-export function renderPlayerHUDHTML(player) {
+export function renderPlayerHUDHTML(player, networkMeta = {}) {
   const f = player.faction;
   const shardsBadges = Array.from({ length: 5 }, (_, i) => {
     const filled = i < player.shards;
@@ -81,6 +83,9 @@ export function renderPlayerHUDHTML(player) {
     return `<span class="inline-block w-3.5 h-3.5 rounded-md transition-all duration-300 ${filled ? 'bg-indigo-500 shadow-[0_0_10px_#6366f1]' : 'bg-slate-800/80 border border-slate-700'}"></span>`;
   }).join(' ');
 
+  const isConcealed = networkMeta.isConcealed;
+  const latency = networkMeta.latency;
+
   return `
     <div class="player-hud relative p-4 rounded-2xl border ${f.borderClass} bg-gradient-to-b ${f.bgGradient} backdrop-blur-md shadow-xl transition-all duration-300">
       <div class="flex items-center justify-between">
@@ -91,9 +96,17 @@ export function renderPlayerHUDHTML(player) {
           <div>
             <h3 class="text-sm font-bold text-slate-100 flex items-center gap-1.5">
               ${player.name}
-              ${player.isAI ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">AI</span>' : '<span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 font-mono">YOU</span>'}
+              ${player.isAI 
+                ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">🤖 BOT</span>' 
+                : (networkMeta.isLocal 
+                    ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 font-mono">👤 YOU</span>'
+                    : `<span class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-950 text-indigo-300 font-mono flex items-center gap-1">🟢 PEER ${latency ? `(${latency}ms)` : ''}</span>`
+                  )
+              }
             </h3>
-            <div class="text-[11px] text-slate-400 font-mono">${player.currentDie.name}</div>
+            <div class="text-[11px] text-slate-400 font-mono">
+              ${isConcealed ? '🔒 Secret Stance (SHA-256)' : player.currentDie.name}
+            </div>
           </div>
         </div>
         <div class="text-right">
@@ -116,6 +129,12 @@ export function renderPlayerHUDHTML(player) {
       ${player.activeShard ? `
         <div class="mt-2 text-[11px] px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 font-mono flex items-center gap-1">
           ⚡ Shard Active: ${player.activeShard}
+        </div>
+      ` : ''}
+
+      ${isConcealed ? `
+        <div class="mt-2 text-[10px] px-2 py-1 rounded-lg bg-purple-950/40 border border-purple-500/40 text-purple-300 font-mono truncate" title="SHA-256 commitment hash broadcasted">
+          🔒 Commitment: ${networkMeta.commitment?.slice(0, 16)}...
         </div>
       ` : ''}
     </div>
