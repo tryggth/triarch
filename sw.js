@@ -1,9 +1,9 @@
 /**
  * TRIARCH: Cyclic Edge - Service Worker
- * Robust offline caching, WebRTC P2P mesh support, and instant upgrade activation.
+ * Robust offline caching, WebRTC P2P mesh support, NATS WebSocket adapter, and instant upgrade activation.
  */
 
-const CACHE_NAME = 'triarch-cache-v1.3.0';
+const CACHE_NAME = 'triarch-cache-v1.5.0';
 
 const PRECACHE_ASSETS = [
   './',
@@ -20,6 +20,10 @@ const PRECACHE_ASSETS = [
   './src/network/protocol.js',
   './src/network/signaling.js',
   './src/network/peer-mesh.js',
+  './src/network/transports/base-transport.js',
+  './src/network/transports/broadcast-transport.js',
+  './src/network/transports/nats-transport.js',
+  './src/network/transports/index.js',
   './src/network/index.js',
   './src/math/dice.js',
   './src/math/probability.js',
@@ -97,8 +101,9 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // CDN resources (Tailwind / Fonts) with Cache-First then Network
+  // CDN resources (Tailwind / Fonts / esm.sh) with Cache-First then Network
   const isCdn = url.hostname.includes('cdn') || 
+                url.hostname.includes('esm.sh') ||
                 url.hostname.includes('fonts.googleapis.com') || 
                 url.hostname.includes('fonts.gstatic.com') ||
                 url.hostname.includes('cdnjs.cloudflare.com');

@@ -5,3 +5,4 @@
 export * from './protocol.js';
 export * from './signaling.js';
 export * from './peer-mesh.js';
+export * from './transports/index.js';

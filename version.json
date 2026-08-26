@@ -1,8 +1,12 @@
 {
   "name": "TRIARCH: Cyclic Edge",
-  "version": "1.4.0",
-  "buildTime": "2026-08-26T10:00:00Z",
+  "version": "1.5.0",
+  "buildTime": "2026-08-26T10:15:00Z",
   "features": [
+    "Pluggable Network Transport Abstraction (BaseTransport)",
+    "Synadia Cloud / NATS WebSocket Transport Adapter (nats.ws)",
+    "Standardized NATS Subject Hierarchy (triarch.rooms.<CODE>.*)",
+    "Presence Engine with Heartbeat Timeout & Automatic Peer Purging",
     "Clean Tabletop Game Play Mode by Default",
     "Stealth Math Lab & Telemetry Suite (Ctrl+Shift+M / ~ / 2s Long-Press)",
     "Penrose Tri-Die Vector Background Watermark",

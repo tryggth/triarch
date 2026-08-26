@@ -1,7 +1,7 @@
 ================================================================================
  TRIARCH: CYCLIC EDGE - COMBINED SOURCE CODE BUNDLE
- Generated on: 2026-08-26T16:56:01.335Z
- Total Source Files: 40
+ Generated on: 2026-08-26T17:01:07.567Z
+ Total Source Files: 45
 ================================================================================
 
 
@@ -2841,6 +2841,7 @@ export function detectIntransitiveCycles(diceList) {
 export * from './protocol.js';
 export * from './signaling.js';
 export * from './peer-mesh.js';
+export * from './transports/index.js';
 
 
 
@@ -2901,8 +2902,9 @@ export class PeerMeshManager {
    * @param {string} roomCode
    * @param {boolean} [isHost=false]
    * @param {string} [peerName]
+   * @param {Object} [transportOptions={}]
    */
-  connect(roomCode, isHost = false, peerName = null) {
+  connect(roomCode, isHost = false, peerName = null, transportOptions = {}) {
     if (this.transport) {
       this.disconnect();
     }
@@ -2911,7 +2913,7 @@ export class PeerMeshManager {
     this.isHost = isHost;
     if (peerName) this.peerName = peerName;
 
-    this.transport = createSignalingTransport(this.roomCode, this.peerId);
+    this.transport = createSignalingTransport(this.roomCode, this.peerId, transportOptions);
 
     // If host, auto-claim Ruby seat
     if (this.isHost) {
@@ -3445,9 +3447,10 @@ export function computeStateChecksum(gameState) {
 
 /**
  * TRIARCH: Cyclic Edge - Zero-Backend Serverless Signaling Adapter
- * Coordinates WebRTC DataChannels using Trystero (Nostr/BitTorrent) with an
- * automated BroadcastChannel fallback for multi-tab testing & offline mesh.
+ * Coordinates WebRTC DataChannels / NATS WebSocket mesh with pluggable transport backends.
  */
+
+import { createTransport, TRANSPORT_TYPES } from './transports/index.js';
 
 // Unique random peer ID generator
 export function generatePeerId() {
@@ -3465,19 +3468,154 @@ export function generateRoomCode() {
 }
 
 /**
- * BroadcastChannel Signaling Transport (Multi-tab, Localhost & Offline P2P)
+ * Factory function creating the appropriate Signaling Transport.
+ * Routes to selected transport: 'broadcast' (default zero-config) or 'nats' (Synadia Cloud).
+ * @param {string} roomCode
+ * @param {string} [peerId]
+ * @param {Object} [options={}]
+ * @returns {import('./transports/base-transport.js').BaseTransport}
  */
-class BroadcastSignalingTransport {
-  constructor(roomCode, peerId) {
-    this.roomCode = roomCode;
+export function createSignalingTransport(roomCode, peerId = generatePeerId(), options = {}) {
+  const transportType = options.transportType || TRANSPORT_TYPES.BROADCAST;
+  return createTransport(transportType, roomCode, peerId, options);
+}
+
+export { TRANSPORT_TYPES };
+
+
+
+/* =============================================================================
+ * FILE: src/network/transports/base-transport.js
+ * ============================================================================= */
+
+/**
+ * TRIARCH: Cyclic Edge - Base Network Transport Interface
+ * Defines the unified contract that all P2P / WebSocket signaling adapters must satisfy.
+ */
+
+export class BaseTransport {
+  /**
+   * @param {string} roomCode - The room identifier (e.g. 'TR-9X')
+   * @param {string} peerId - The local peer unique ID
+   * @param {Object} [options={}] - Additional transport-specific options
+   */
+  constructor(roomCode, peerId, options = {}) {
+    if (!roomCode || typeof roomCode !== 'string') {
+      throw new Error('BaseTransport requires a non-empty string roomCode.');
+    }
+    if (!peerId || typeof peerId !== 'string') {
+      throw new Error('BaseTransport requires a non-empty string peerId.');
+    }
+
+    this.roomCode = roomCode.toUpperCase();
     this.peerId = peerId;
-    this.channelName = `triarch-mesh-${roomCode.toUpperCase()}`;
-    this.peers = new Set();
+    this.options = options || {};
+
     this.handlers = {
       peerJoin: new Set(),
       peerLeave: new Set(),
       message: new Set()
     };
+  }
+
+  /**
+   * Connects/initializes the underlying network medium.
+   * @returns {Promise<void>|void}
+   */
+  connect() {
+    // Override in subclass
+  }
+
+  /**
+   * Broadcasts a payload to all peers connected to the room.
+   * @param {any} payload
+   */
+  broadcast(payload) {
+    throw new Error('broadcast() must be implemented by subclass.');
+  }
+
+  /**
+   * Sends a unicast payload directly to a specific target peer.
+   * @param {any} payload
+   * @param {string} targetPeerId
+   */
+  send(payload, targetPeerId) {
+    throw new Error('send() must be implemented by subclass.');
+  }
+
+  /**
+   * Registers a listener for newcomer peer discovery.
+   * @param {function(string): void} callback - (peerId) => void
+   */
+  onPeerJoin(callback) {
+    if (typeof callback === 'function') {
+      this.handlers.peerJoin.add(callback);
+    }
+  }
+
+  /**
+   * Registers a listener for peer departure or disconnection.
+   * @param {function(string): void} callback - (peerId) => void
+   */
+  onPeerLeave(callback) {
+    if (typeof callback === 'function') {
+      this.handlers.peerLeave.add(callback);
+    }
+  }
+
+  /**
+   * Registers a listener for incoming messages.
+   * @param {function(any, string): void} callback - (payload, fromPeerId) => void
+   */
+  onMessage(callback) {
+    if (typeof callback === 'function') {
+      this.handlers.message.add(callback);
+    }
+  }
+
+  /**
+   * Returns a list of currently active and verified peer IDs in the room.
+   * @returns {string[]}
+   */
+  getConnectedPeers() {
+    throw new Error('getConnectedPeers() must be implemented by subclass.');
+  }
+
+  /**
+   * Gracefully leaves the room, cancels timers, and closes subscriptions.
+   */
+  leave() {
+    this.handlers.peerJoin.clear();
+    this.handlers.peerLeave.clear();
+    this.handlers.message.clear();
+  }
+}
+
+
+
+/* =============================================================================
+ * FILE: src/network/transports/broadcast-transport.js
+ * ============================================================================= */
+
+/**
+ * TRIARCH: Cyclic Edge - BroadcastChannel Signaling Transport
+ * Provides zero-configuration, instant local multi-tab and same-origin P2P transport.
+ */
+
+import { BaseTransport } from './base-transport.js';
+
+export class BroadcastSignalingTransport extends BaseTransport {
+  /**
+   * @param {string} roomCode
+   * @param {string} peerId
+   * @param {Object} [options={}]
+   */
+  constructor(roomCode, peerId, options = {}) {
+    super(roomCode, peerId, options);
+
+    this.channelName = `triarch-mesh-${this.roomCode}`;
+    this.peers = new Set();
+    this._heartbeatTimer = null;
 
     if (typeof BroadcastChannel !== 'undefined') {
       this.bc = new BroadcastChannel(this.channelName);
@@ -3486,9 +3624,14 @@ class BroadcastSignalingTransport {
       this.bc = null;
     }
 
-    // Broadcast presence hello
+    this.connect();
+  }
+
+  connect() {
     this._announcePresence();
-    this._heartbeatTimer = setInterval(() => this._announcePresence(), 3000);
+    if (!this._heartbeatTimer) {
+      this._heartbeatTimer = setInterval(() => this._announcePresence(), 3000);
+    }
   }
 
   _announcePresence() {
@@ -3504,7 +3647,7 @@ class BroadcastSignalingTransport {
       try {
         this.bc.postMessage(data);
       } catch (err) {
-        console.warn('[Signaling] Broadcast post error:', err);
+        console.warn('[BroadcastTransport] Post error:', err);
       }
     }
   }
@@ -3516,7 +3659,7 @@ class BroadcastSignalingTransport {
     if (data._sys === 'HELLO') {
       if (!this.peers.has(data.from)) {
         this.peers.add(data.from);
-        // Reply so newcomer knows we exist
+        // Reply with welcome so newcomer discovers us
         this._post({ _sys: 'WELCOME', from: this.peerId, to: data.from });
         for (const cb of this.handlers.peerJoin) cb(data.from);
       }
@@ -3540,7 +3683,7 @@ class BroadcastSignalingTransport {
     }
 
     // Standard application payload
-    if (data.payload) {
+    if (data.payload !== undefined) {
       if (!data.to || data.to === this.peerId) {
         for (const cb of this.handlers.message) {
           cb(data.payload, data.from);
@@ -3557,41 +3700,387 @@ class BroadcastSignalingTransport {
     this._post({ from: this.peerId, to: targetPeerId, payload });
   }
 
-  onPeerJoin(cb) {
-    this.handlers.peerJoin.add(cb);
-  }
-
-  onPeerLeave(cb) {
-    this.handlers.peerLeave.add(cb);
-  }
-
-  onMessage(cb) {
-    this.handlers.message.add(cb);
-  }
-
-  leave() {
-    clearInterval(this._heartbeatTimer);
-    this._post({ _sys: 'LEAVE', from: this.peerId });
-    if (this.bc) {
-      this.bc.close();
-    }
-    this.peers.clear();
-  }
-
   getConnectedPeers() {
     return Array.from(this.peers);
   }
+
+  leave() {
+    if (this._heartbeatTimer) {
+      clearInterval(this._heartbeatTimer);
+      this._heartbeatTimer = null;
+    }
+    this._post({ _sys: 'LEAVE', from: this.peerId });
+    if (this.bc) {
+      this.bc.close();
+      this.bc = null;
+    }
+    this.peers.clear();
+    super.leave();
+  }
 }
 
+
+
+/* =============================================================================
+ * FILE: src/network/transports/index.js
+ * ============================================================================= */
+
 /**
- * Factory function creating appropriate Signaling Transport.
- * Combines WebRTC relay with BroadcastChannel redundancy.
- * @param {string} roomCode
- * @param {string} [peerId]
- * @returns {BroadcastSignalingTransport}
+ * TRIARCH: Cyclic Edge - Network Transports Registry & Factory
  */
-export function createSignalingTransport(roomCode, peerId = generatePeerId()) {
-  return new BroadcastSignalingTransport(roomCode, peerId);
+
+import { BaseTransport } from './base-transport.js';
+import { BroadcastSignalingTransport } from './broadcast-transport.js';
+import { NatsSignalingTransport } from './nats-transport.js';
+
+export * from './base-transport.js';
+export * from './broadcast-transport.js';
+export * from './nats-transport.js';
+
+export const TRANSPORT_TYPES = Object.freeze({
+  BROADCAST: 'broadcast',
+  NATS: 'nats'
+});
+
+/**
+ * Transport Factory creating the appropriate network adapter.
+ * @param {string} type - 'broadcast' | 'nats'
+ * @param {string} roomCode
+ * @param {string} peerId
+ * @param {Object} [options={}]
+ * @returns {BaseTransport}
+ */
+export function createTransport(type = TRANSPORT_TYPES.BROADCAST, roomCode, peerId, options = {}) {
+  const normType = (type || '').toLowerCase();
+
+  switch (normType) {
+    case TRANSPORT_TYPES.NATS:
+      return new NatsSignalingTransport(roomCode, peerId, options);
+
+    case TRANSPORT_TYPES.BROADCAST:
+    default:
+      return new BroadcastSignalingTransport(roomCode, peerId, options);
+  }
+}
+
+
+
+/* =============================================================================
+ * FILE: src/network/transports/nats-transport.js
+ * ============================================================================= */
+
+/**
+ * TRIARCH: Cyclic Edge - NATS WebSocket Transport Adapter (Synadia Cloud / NATS.ws)
+ * Implements high-performance cloud pub/sub signaling across the NATS namespace:
+ *  - Broadcast: triarch.rooms.<ROOM_CODE>.broadcast
+ *  - Unicast:   triarch.rooms.<ROOM_CODE>.peer.<TARGET_PEER_ID>
+ *  - Presence:  triarch.rooms.<ROOM_CODE>.presence.<PEER_ID>
+ */
+
+import { BaseTransport } from './base-transport.js';
+
+export const NATS_DEFAULT_SERVERS = [
+  'wss://connect.ngs.global',
+  'wss://demo.nats.io:8443'
+];
+
+export class NatsSignalingTransport extends BaseTransport {
+  /**
+   * @param {string} roomCode
+   * @param {string} peerId
+   * @param {Object} [options={}]
+   */
+  constructor(roomCode, peerId, options = {}) {
+    super(roomCode, peerId, options);
+
+    this.serverUrls = options.servers || (options.serverUrl ? [options.serverUrl] : NATS_DEFAULT_SERVERS);
+    this.nc = null; // NATS connection instance
+    this.jc = null; // JSON codec
+    this.subscriptions = [];
+    this.peerLastSeen = new Map(); // peerId -> timestamp
+
+    this._heartbeatTimer = null;
+    this._gcTimer = null;
+    this.isConnected = false;
+
+    // Direct injection of connection for unit testing / mock environments
+    if (options.natsClient) {
+      this.nc = options.natsClient;
+      this._initCodec();
+      this._initSubscriptions();
+      this._startHeartbeat();
+    }
+  }
+
+  /* ---------------- Subject Namespace Mapping Helpers ---------------- */
+
+  static getBroadcastSubject(roomCode) {
+    return `triarch.rooms.${roomCode.toUpperCase()}.broadcast`;
+  }
+
+  static getPeerSubject(roomCode, peerId) {
+    return `triarch.rooms.${roomCode.toUpperCase()}.peer.${peerId}`;
+  }
+
+  static getPresenceSubject(roomCode, peerId) {
+    return `triarch.rooms.${roomCode.toUpperCase()}.presence.${peerId}`;
+  }
+
+  static getPresenceWildcardSubject(roomCode) {
+    return `triarch.rooms.${roomCode.toUpperCase()}.presence.*`;
+  }
+
+  get broadcastSubject() {
+    return NatsSignalingTransport.getBroadcastSubject(this.roomCode);
+  }
+
+  get peerSubject() {
+    return NatsSignalingTransport.getPeerSubject(this.roomCode, this.peerId);
+  }
+
+  get presenceSubject() {
+    return NatsSignalingTransport.getPresenceSubject(this.roomCode, this.peerId);
+  }
+
+  get presenceWildcardSubject() {
+    return NatsSignalingTransport.getPresenceWildcardSubject(this.roomCode);
+  }
+
+  /* ---------------- Connection & Codec Setup ---------------- */
+
+  _initCodec(natsWsModule = null) {
+    if (natsWsModule && natsWsModule.JSONCodec) {
+      this.jc = natsWsModule.JSONCodec();
+    } else {
+      // Robust pure JS JSON codec fallback
+      const te = new TextEncoder();
+      const td = new TextDecoder();
+      this.jc = {
+        encode: (d) => te.encode(JSON.stringify(d)),
+        decode: (b) => JSON.parse(td.decode(b))
+      };
+    }
+  }
+
+  /**
+   * Initializes WebSocket connection to NATS / Synadia Cloud.
+   * @returns {Promise<void>}
+   */
+  async connect() {
+    if (this.nc || this.isConnected) return;
+
+    try {
+      // Dynamic import of nats.ws via CDN
+      const natsWs = await import('https://esm.sh/nats.ws@1.30.2');
+      this._initCodec(natsWs);
+
+      const connectOpts = {
+        servers: this.serverUrls,
+        name: `triarch_${this.peerId}`,
+        timeout: this.options.timeout || 10000,
+        ...this.options.connectionOptions
+      };
+
+      if (this.options.user && this.options.pass) {
+        connectOpts.user = this.options.user;
+        connectOpts.pass = this.options.pass;
+      }
+      if (this.options.token) {
+        connectOpts.token = this.options.token;
+      }
+      if (this.options.authenticator) {
+        connectOpts.authenticator = this.options.authenticator;
+      }
+
+      this.nc = await natsWs.connect(connectOpts);
+      this.isConnected = true;
+
+      await this._initSubscriptions();
+      this._startHeartbeat();
+
+      console.log(`[NATS Transport] Connected to ${this.nc.getServer()} for room ${this.roomCode}`);
+    } catch (err) {
+      console.warn('[NATS Transport] Connection failed, falling back:', err);
+      this.isConnected = false;
+      throw err;
+    }
+  }
+
+  /* ---------------- Subscriptions & Heartbeat Tracking ---------------- */
+
+  async _initSubscriptions() {
+    if (!this.nc) return;
+
+    // 1. Subscribe to Broadcast Channel
+    const subBroadcast = this.nc.subscribe(this.broadcastSubject);
+    this.subscriptions.push(subBroadcast);
+    this._consumeMessages(subBroadcast);
+
+    // 2. Subscribe to Direct Unicast Peer Channel
+    const subPeer = this.nc.subscribe(this.peerSubject);
+    this.subscriptions.push(subPeer);
+    this._consumeMessages(subPeer);
+
+    // 3. Subscribe to Presence Wildcard
+    const subPresence = this.nc.subscribe(this.presenceWildcardSubject);
+    this.subscriptions.push(subPresence);
+    this._consumePresence(subPresence);
+  }
+
+  async _consumeMessages(subscription) {
+    try {
+      for await (const msg of subscription) {
+        try {
+          const data = this.jc.decode(msg.data);
+          if (data && data.from && data.from !== this.peerId) {
+            if (data.payload !== undefined) {
+              for (const cb of this.handlers.message) {
+                cb(data.payload, data.from);
+              }
+            }
+          }
+        } catch (decodeErr) {
+          console.warn('[NATS Transport] Error decoding payload:', decodeErr);
+        }
+      }
+    } catch (err) {
+      // Subscription closed or drained
+    }
+  }
+
+  async _consumePresence(subscription) {
+    try {
+      for await (const msg of subscription) {
+        try {
+          const data = this.jc.decode(msg.data);
+          this.handlePresenceMessage(data);
+        } catch (err) {
+          console.warn('[NATS Transport] Error in presence decode:', err);
+        }
+      }
+    } catch (err) {
+      // Subscription closed
+    }
+  }
+
+  /**
+   * Handles incoming presence and heartbeat packets.
+   * @param {Object} data
+   */
+  handlePresenceMessage(data) {
+    if (!data || !data.from || data.from === this.peerId) return;
+
+    const fromPeerId = data.from;
+
+    if (data._sys === 'LEAVE') {
+      if (this.peerLastSeen.has(fromPeerId)) {
+        this.peerLastSeen.delete(fromPeerId);
+        for (const cb of this.handlers.peerLeave) cb(fromPeerId);
+      }
+      return;
+    }
+
+    // Heartbeat or Hello
+    const isNewPeer = !this.peerLastSeen.has(fromPeerId);
+    this.peerLastSeen.set(fromPeerId, Date.now());
+
+    if (isNewPeer) {
+      for (const cb of this.handlers.peerJoin) cb(fromPeerId);
+      // Send presence announcement immediately in response
+      this._publishPresence();
+    }
+  }
+
+  _startHeartbeat() {
+    this._publishPresence();
+
+    if (!this._heartbeatTimer) {
+      this._heartbeatTimer = setInterval(() => this._publishPresence(), 3000);
+    }
+
+    if (!this._gcTimer) {
+      // Check for peer timeouts every 2 seconds
+      this._gcTimer = setInterval(() => this._purgeInactivePeers(), 2000);
+    }
+  }
+
+  _publishPresence(sysAction = null) {
+    if (!this.nc || !this.jc) return;
+    try {
+      const data = {
+        from: this.peerId,
+        t: Date.now(),
+        _sys: sysAction || 'HEARTBEAT'
+      };
+      this.nc.publish(this.presenceSubject, this.jc.encode(data));
+    } catch (err) {
+      console.warn('[NATS Transport] Error publishing presence:', err);
+    }
+  }
+
+  _purgeInactivePeers(timeoutMs = 7000) {
+    const now = Date.now();
+    for (const [peerId, lastSeen] of this.peerLastSeen.entries()) {
+      if (now - lastSeen > timeoutMs) {
+        this.peerLastSeen.delete(peerId);
+        for (const cb of this.handlers.peerLeave) cb(peerId);
+      }
+    }
+  }
+
+  /* ---------------- Public Transport Operations ---------------- */
+
+  broadcast(payload) {
+    if (!this.nc || !this.jc) return;
+    const packet = { from: this.peerId, payload };
+    this.nc.publish(this.broadcastSubject, this.jc.encode(packet));
+  }
+
+  send(payload, targetPeerId) {
+    if (!this.nc || !this.jc || !targetPeerId) return;
+    const targetSubject = NatsSignalingTransport.getPeerSubject(this.roomCode, targetPeerId);
+    const packet = { from: this.peerId, to: targetPeerId, payload };
+    this.nc.publish(targetSubject, this.jc.encode(packet));
+  }
+
+  getConnectedPeers() {
+    return Array.from(this.peerLastSeen.keys());
+  }
+
+  async leave() {
+    // Send graceful leave announcement
+    this._publishPresence('LEAVE');
+
+    if (this._heartbeatTimer) {
+      clearInterval(this._heartbeatTimer);
+      this._heartbeatTimer = null;
+    }
+    if (this._gcTimer) {
+      clearInterval(this._gcTimer);
+      this._gcTimer = null;
+    }
+
+    if (this.nc) {
+      try {
+        for (const sub of this.subscriptions) {
+          sub.unsubscribe();
+        }
+        if (typeof this.nc.drain === 'function') {
+          await this.nc.drain();
+        } else if (typeof this.nc.close === 'function') {
+          await this.nc.close();
+        }
+      } catch (err) {
+        console.warn('[NATS Transport] Error during leave cleanup:', err);
+      }
+      this.nc = null;
+    }
+
+    this.subscriptions = [];
+    this.peerLastSeen.clear();
+    this.isConnected = false;
+    super.leave();
+  }
 }
 
 
@@ -6274,10 +6763,10 @@ export function createDiceVisual(container, die) {
 
 /**
  * TRIARCH: Cyclic Edge - Service Worker
- * Robust offline caching, WebRTC P2P mesh support, and instant upgrade activation.
+ * Robust offline caching, WebRTC P2P mesh support, NATS WebSocket adapter, and instant upgrade activation.
  */
 
-const CACHE_NAME = 'triarch-cache-v1.3.0';
+const CACHE_NAME = 'triarch-cache-v1.5.0';
 
 const PRECACHE_ASSETS = [
   './',
@@ -6294,6 +6783,10 @@ const PRECACHE_ASSETS = [
   './src/network/protocol.js',
   './src/network/signaling.js',
   './src/network/peer-mesh.js',
+  './src/network/transports/base-transport.js',
+  './src/network/transports/broadcast-transport.js',
+  './src/network/transports/nats-transport.js',
+  './src/network/transports/index.js',
   './src/network/index.js',
   './src/math/dice.js',
   './src/math/probability.js',
@@ -6371,8 +6864,9 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
-  // CDN resources (Tailwind / Fonts) with Cache-First then Network
+  // CDN resources (Tailwind / Fonts / esm.sh) with Cache-First then Network
   const isCdn = url.hostname.includes('cdn') || 
+                url.hostname.includes('esm.sh') ||
                 url.hostname.includes('fonts.googleapis.com') || 
                 url.hostname.includes('fonts.gstatic.com') ||
                 url.hostname.includes('cdnjs.cloudflare.com');
@@ -6912,6 +7406,198 @@ describe('Game Theory Insights Generator', () => {
 
 
 /* =============================================================================
+ * FILE: test/nats-transport.test.js
+ * ============================================================================= */
+
+/**
+ * Automated Verification Suite - Transport Abstraction & NATS WebSocket Adapter
+ */
+
+import { test, describe } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  BaseTransport,
+  BroadcastSignalingTransport,
+  NatsSignalingTransport,
+  createTransport,
+  TRANSPORT_TYPES
+} from '../src/network/transports/index.js';
+import {
+  createActionEnvelope,
+  ACTION_TYPES
+} from '../src/network/protocol.js';
+
+describe('Transport Interface Compliance', () => {
+  const roomCode = 'TR-9X';
+  const peerId = 'peer_test_001';
+
+  test('BroadcastSignalingTransport implements all BaseTransport methods', () => {
+    const transport = new BroadcastSignalingTransport(roomCode, peerId);
+
+    assert.ok(transport instanceof BaseTransport);
+    assert.equal(typeof transport.broadcast, 'function');
+    assert.equal(typeof transport.send, 'function');
+    assert.equal(typeof transport.onPeerJoin, 'function');
+    assert.equal(typeof transport.onPeerLeave, 'function');
+    assert.equal(typeof transport.onMessage, 'function');
+    assert.equal(typeof transport.getConnectedPeers, 'function');
+    assert.equal(typeof transport.leave, 'function');
+
+    transport.leave();
+  });
+
+  test('NatsSignalingTransport implements all BaseTransport methods', () => {
+    const transport = new NatsSignalingTransport(roomCode, peerId);
+
+    assert.ok(transport instanceof BaseTransport);
+    assert.equal(typeof transport.broadcast, 'function');
+    assert.equal(typeof transport.send, 'function');
+    assert.equal(typeof transport.onPeerJoin, 'function');
+    assert.equal(typeof transport.onPeerLeave, 'function');
+    assert.equal(typeof transport.onMessage, 'function');
+    assert.equal(typeof transport.getConnectedPeers, 'function');
+    assert.equal(typeof transport.leave, 'function');
+
+    transport.leave();
+  });
+});
+
+describe('NATS Subject Namespace Construction', () => {
+  const room = 'TR-7K';
+  const peer = 'peer_archon_42';
+
+  test('Generates standard subject hierarchy matching specification', () => {
+    const broadcastSubj = NatsSignalingTransport.getBroadcastSubject(room);
+    const peerSubj = NatsSignalingTransport.getPeerSubject(room, peer);
+    const presenceSubj = NatsSignalingTransport.getPresenceSubject(room, peer);
+    const wildcardSubj = NatsSignalingTransport.getPresenceWildcardSubject(room);
+
+    assert.equal(broadcastSubj, 'triarch.rooms.TR-7K.broadcast');
+    assert.equal(peerSubj, 'triarch.rooms.TR-7K.peer.peer_archon_42');
+    assert.equal(presenceSubj, 'triarch.rooms.TR-7K.presence.peer_archon_42');
+    assert.equal(wildcardSubj, 'triarch.rooms.TR-7K.presence.*');
+  });
+
+  test('Instance getters match static helpers', () => {
+    const transport = new NatsSignalingTransport(room, peer);
+
+    assert.equal(transport.broadcastSubject, 'triarch.rooms.TR-7K.broadcast');
+    assert.equal(transport.peerSubject, 'triarch.rooms.TR-7K.peer.peer_archon_42');
+    assert.equal(transport.presenceSubject, 'triarch.rooms.TR-7K.presence.peer_archon_42');
+    assert.equal(transport.presenceWildcardSubject, 'triarch.rooms.TR-7K.presence.*');
+
+    transport.leave();
+  });
+});
+
+describe('Payload Codec & Serialization Integrity', () => {
+  test('Action envelopes serialize and deserialize losslessly via NATS codec', () => {
+    const transport = new NatsSignalingTransport('TR-TEST', 'peer_sender');
+    transport._initCodec();
+
+    const originalEnvelope = createActionEnvelope(ACTION_TYPES.DRAFT_COMMIT, 'ruby', {
+      commitment: 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855'
+    }, { peerId: 'peer_sender', round: 2 });
+
+    const encoded = transport.jc.encode({ from: 'peer_sender', payload: originalEnvelope });
+    assert.ok(encoded instanceof Uint8Array || typeof encoded === 'object');
+
+    const decoded = transport.jc.decode(encoded);
+    assert.equal(decoded.from, 'peer_sender');
+    assert.deepEqual(decoded.payload, originalEnvelope);
+
+    transport.leave();
+  });
+});
+
+describe('Presence Tracking & Heartbeat Timeout', () => {
+  test('Discovers newcomer peer and triggers onPeerJoin listener', () => {
+    const transport = new NatsSignalingTransport('TR-9X', 'peer_local');
+    const joinedPeers = [];
+
+    transport.onPeerJoin((pId) => joinedPeers.push(pId));
+
+    // Simulate incoming heartbeat from peer_remote_1
+    transport.handlePresenceMessage({
+      from: 'peer_remote_1',
+      t: Date.now(),
+      _sys: 'HEARTBEAT'
+    });
+
+    assert.equal(joinedPeers.length, 1);
+    assert.equal(joinedPeers[0], 'peer_remote_1');
+    assert.deepEqual(transport.getConnectedPeers(), ['peer_remote_1']);
+
+    // Subsequent heartbeat from same peer does not duplicate join event
+    transport.handlePresenceMessage({
+      from: 'peer_remote_1',
+      t: Date.now() + 100,
+      _sys: 'HEARTBEAT'
+    });
+    assert.equal(joinedPeers.length, 1);
+
+    transport.leave();
+  });
+
+  test('Graceful LEAVE event purges peer and triggers onPeerLeave', () => {
+    const transport = new NatsSignalingTransport('TR-9X', 'peer_local');
+    const leftPeers = [];
+
+    transport.onPeerLeave((pId) => leftPeers.push(pId));
+
+    // Join peer
+    transport.handlePresenceMessage({ from: 'peer_remote_2', t: Date.now() });
+    assert.equal(transport.getConnectedPeers().includes('peer_remote_2'), true);
+
+    // Leave peer
+    transport.handlePresenceMessage({ from: 'peer_remote_2', _sys: 'LEAVE', t: Date.now() });
+    assert.equal(transport.getConnectedPeers().includes('peer_remote_2'), false);
+    assert.equal(leftPeers.length, 1);
+    assert.equal(leftPeers[0], 'peer_remote_2');
+
+    transport.leave();
+  });
+
+  test('Inactive peer timeout purges stale peer after threshold', () => {
+    const transport = new NatsSignalingTransport('TR-9X', 'peer_local');
+    const leftPeers = [];
+    transport.onPeerLeave((pId) => leftPeers.push(pId));
+
+    // Add peer seen 8000ms ago
+    transport.peerLastSeen.set('peer_stale_1', Date.now() - 8000);
+    assert.equal(transport.getConnectedPeers().length, 1);
+
+    // Run purge with 7000ms timeout threshold
+    transport._purgeInactivePeers(7000);
+
+    assert.equal(transport.getConnectedPeers().length, 0);
+    assert.equal(leftPeers.length, 1);
+    assert.equal(leftPeers[0], 'peer_stale_1');
+
+    transport.leave();
+  });
+});
+
+describe('Transport Factory Routing', () => {
+  test('Factory instantiates requested transport type', () => {
+    const bcTransport = createTransport(TRANSPORT_TYPES.BROADCAST, 'TR-11', 'peer_a');
+    assert.ok(bcTransport instanceof BroadcastSignalingTransport);
+    bcTransport.leave();
+
+    const natsTransport = createTransport(TRANSPORT_TYPES.NATS, 'TR-22', 'peer_b');
+    assert.ok(natsTransport instanceof NatsSignalingTransport);
+    natsTransport.leave();
+
+    // Default fallback
+    const defaultTransport = createTransport(null, 'TR-33', 'peer_c');
+    assert.ok(defaultTransport instanceof BroadcastSignalingTransport);
+    defaultTransport.leave();
+  });
+});
+
+
+
+/* =============================================================================
  * FILE: test/network.test.js
  * ============================================================================= */
 
@@ -7265,9 +7951,13 @@ describe('Graph-Theoretic Cycle Detection', () => {
 
 {
   "name": "TRIARCH: Cyclic Edge",
-  "version": "1.4.0",
-  "buildTime": "2026-08-26T10:00:00Z",
+  "version": "1.5.0",
+  "buildTime": "2026-08-26T10:15:00Z",
   "features": [
+    "Pluggable Network Transport Abstraction (BaseTransport)",
+    "Synadia Cloud / NATS WebSocket Transport Adapter (nats.ws)",
+    "Standardized NATS Subject Hierarchy (triarch.rooms.<CODE>.*)",
+    "Presence Engine with Heartbeat Timeout & Automatic Peer Purging",
     "Clean Tabletop Game Play Mode by Default",
     "Stealth Math Lab & Telemetry Suite (Ctrl+Shift+M / ~ / 2s Long-Press)",
     "Penrose Tri-Die Vector Background Watermark",

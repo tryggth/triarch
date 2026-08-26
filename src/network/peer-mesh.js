@@ -51,8 +51,9 @@ export class PeerMeshManager {
    * @param {string} roomCode
    * @param {boolean} [isHost=false]
    * @param {string} [peerName]
+   * @param {Object} [transportOptions={}]
    */
-  connect(roomCode, isHost = false, peerName = null) {
+  connect(roomCode, isHost = false, peerName = null, transportOptions = {}) {
     if (this.transport) {
       this.disconnect();
     }
@@ -61,7 +62,7 @@ export class PeerMeshManager {
     this.isHost = isHost;
     if (peerName) this.peerName = peerName;
 
-    this.transport = createSignalingTransport(this.roomCode, this.peerId);
+    this.transport = createSignalingTransport(this.roomCode, this.peerId, transportOptions);
 
     // If host, auto-claim Ruby seat
     if (this.isHost) {
