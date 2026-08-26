@@ -50,21 +50,23 @@ export class PeerMeshManager {
    * @returns {string}
    */
   getLocalFaction() {
-    return GO_FIRST_TO_FACTION[this.localSeat] || this.localSeat || 'ruby';
+    return GO_FIRST_TO_FACTION[this.localSeat] || 'ruby';
   }
 
   _resetSeats() {
-    const defaultSeat = (isAI = true, aiType = 'CYCLIC_EXPLOITER') => ({ peerId: null, name: null, isAI, aiType, ready: false });
-    const g1 = defaultSeat(false, null);
-    const g2 = defaultSeat(true, 'MAX_EV');
-    const g3 = defaultSeat(true, 'SHARD_TACTICIAN');
+    const defaultSeat = (die, isAI = true, aiType = 'CYCLIC_EXPLOITER') => ({
+      peerId: null,
+      name: null,
+      isAI,
+      aiType,
+      ready: false,
+      die,
+      faction: GO_FIRST_TO_FACTION[die]
+    });
     this.seats = {
-      G1: g1,
-      G2: g2,
-      G3: g3,
-      ruby: g1,
-      cyan: g2,
-      amber: g3
+      G1: defaultSeat('G1', false, null),
+      G2: defaultSeat('G2', true, 'MAX_EV'),
+      G3: defaultSeat('G3', true, 'SHARD_TACTICIAN')
     };
   }
 
@@ -92,7 +94,7 @@ export class PeerMeshManager {
     if (this.isHost) {
       const hostDie = initialDie.startsWith('G') ? initialDie : (FACTION_TO_GO_FIRST[initialDie] || 'G1');
       const hostFaction = GO_FIRST_TO_FACTION[hostDie] || 'ruby';
-      this.localSeat = hostFaction;
+      this.localSeat = hostDie;
       const hostSeatData = {
         peerId: this.peerId,
         name: this.peerName,
@@ -103,7 +105,6 @@ export class PeerMeshManager {
         faction: hostFaction
       };
       this.seats[hostDie] = hostSeatData;
-      this.seats[hostFaction] = hostSeatData;
     }
 
     // Set up transport handlers
@@ -146,7 +147,6 @@ export class PeerMeshManager {
               faction
             };
             this.seats[d] = botSeat;
-            this.seats[faction] = botSeat;
           }
         }
         this.broadcastSeatState();
@@ -232,9 +232,15 @@ export class PeerMeshManager {
         // Vacate any prior seat claimed by this peer
         for (const d of ['G1', 'G2', 'G3']) {
           if (d !== targetDie && this.seats[d]?.peerId === peerId) {
-            const empty = { peerId: null, name: null, isAI: false, aiType: null, ready: false };
-            this.seats[d] = empty;
-            this.seats[GO_FIRST_TO_FACTION[d]] = empty;
+            this.seats[d] = {
+              peerId: null,
+              name: null,
+              isAI: false,
+              aiType: null,
+              ready: false,
+              die: d,
+              faction: GO_FIRST_TO_FACTION[d]
+            };
           }
         }
 
@@ -249,7 +255,6 @@ export class PeerMeshManager {
             faction: targetFaction
           };
           this.seats[targetDie] = seatData;
-          this.seats[targetFaction] = seatData;
 
           this.broadcastSeatState();
           globalKvRegistry.claimSeat(this.roomCode, targetDie, peerId, peerName);
@@ -288,22 +293,19 @@ export class PeerMeshManager {
     if (envelope.type === ACTION_TYPES.SEAT_STATE) {
       if (envelope.payload.seats) {
         const raw = envelope.payload.seats;
-        const g1 = raw.G1 || raw.ruby || { peerId: null, name: null, isAI: false, ready: false };
-        const g2 = raw.G2 || raw.cyan || { peerId: null, name: null, isAI: false, ready: false };
-        const g3 = raw.G3 || raw.amber || { peerId: null, name: null, isAI: false, ready: false };
+        const g1 = raw.G1 || raw.ruby || { peerId: null, name: null, isAI: false, ready: false, die: 'G1', faction: 'ruby' };
+        const g2 = raw.G2 || raw.cyan || { peerId: null, name: null, isAI: false, ready: false, die: 'G2', faction: 'cyan' };
+        const g3 = raw.G3 || raw.amber || { peerId: null, name: null, isAI: false, ready: false, die: 'G3', faction: 'amber' };
         this.seats = {
           G1: g1,
           G2: g2,
-          G3: g3,
-          ruby: g1,
-          cyan: g2,
-          amber: g3
+          G3: g3
         };
         // Determine local seat
         this.localSeat = null;
-        for (const d of ['G1', 'G2', 'G3', 'ruby', 'cyan', 'amber']) {
+        for (const d of ['G1', 'G2', 'G3']) {
           if (this.seats[d]?.peerId === this.peerId) {
-            this.localSeat = GO_FIRST_TO_FACTION[d] || d;
+            this.localSeat = d;
             break;
           }
         }
@@ -336,14 +338,20 @@ export class PeerMeshManager {
     const dieKey = targetSeat.startsWith('G') ? targetSeat : (FACTION_TO_GO_FIRST[targetSeat] || 'G1');
     const factionKey = GO_FIRST_TO_FACTION[dieKey] || 'ruby';
 
-    this.localSeat = factionKey;
+    this.localSeat = dieKey;
 
     if (this.isHost) {
       for (const d of ['G1', 'G2', 'G3']) {
         if (d !== dieKey && this.seats[d]?.peerId === this.peerId) {
-          const empty = { peerId: null, name: null, isAI: false, aiType: null, ready: false };
-          this.seats[d] = empty;
-          this.seats[GO_FIRST_TO_FACTION[d]] = empty;
+          this.seats[d] = {
+            peerId: null,
+            name: null,
+            isAI: false,
+            aiType: null,
+            ready: false,
+            die: d,
+            faction: GO_FIRST_TO_FACTION[d]
+          };
         }
       }
       const hostSeatData = {
@@ -356,8 +364,7 @@ export class PeerMeshManager {
         faction: factionKey
       };
       this.seats[dieKey] = hostSeatData;
-      this.seats[factionKey] = hostSeatData;
-      this.localSeat = factionKey;
+      this.localSeat = dieKey;
       this.broadcastSeatState();
       globalKvRegistry.claimSeat(this.roomCode, dieKey, this.peerId, this.peerName);
     } else {
@@ -375,7 +382,7 @@ export class PeerMeshManager {
    * Finds and claims first unoccupied seat.
    */
   requestAvailableSeat() {
-    for (const s of SEATS) {
+    for (const s of ['G1', 'G2', 'G3']) {
       if (!this.seats[s].peerId || this.seats[s].isAI) {
         this.claimSeat(s);
         break;
@@ -385,7 +392,7 @@ export class PeerMeshManager {
 
   /**
    * Host toggles an unoccupied seat between human open and AI Bot archetype.
-   * @param {string} seat - 'ruby', 'cyan', 'amber' or 'G1', 'G2', 'G3'
+   * @param {string} seat - 'G1', 'G2', 'G3'
    * @param {boolean} isAI
    * @param {string} [aiType='CYCLIC_EXPLOITER']
    */
@@ -413,7 +420,6 @@ export class PeerMeshManager {
     };
 
     this.seats[dieKey] = seatData;
-    this.seats[factionKey] = seatData;
     this.broadcastSeatState();
   }
 

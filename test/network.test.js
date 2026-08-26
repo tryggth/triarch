@@ -107,19 +107,19 @@ describe('Peer Mesh Seating Negotiation', () => {
     mesh.connect('TEST', true, 'HostPlayer');
 
     assert.equal(mesh.isHost, true);
-    assert.equal(mesh.localSeat, 'ruby');
-    assert.equal(mesh.seats.ruby.isAI, false);
-    assert.equal(mesh.seats.cyan.isAI, true);
-    assert.equal(mesh.seats.amber.isAI, true);
+    assert.equal(mesh.localSeat, 'G1');
+    assert.equal(mesh.seats.G1.isAI, false);
+    assert.equal(mesh.seats.G2.isAI, true);
+    assert.equal(mesh.seats.G3.isAI, true);
 
-    // Toggle Cyan to human open seat
-    mesh.setSeatAI('cyan', false);
-    assert.equal(mesh.seats.cyan.isAI, false);
+    // Toggle G2 to human open seat
+    mesh.setSeatAI('G2', false);
+    assert.equal(mesh.seats.G2.isAI, false);
 
-    // Toggle Amber to Tactician AI
-    mesh.setSeatAI('amber', true, 'SHARD_TACTICIAN');
-    assert.equal(mesh.seats.amber.isAI, true);
-    assert.equal(mesh.seats.amber.aiType, 'SHARD_TACTICIAN');
+    // Toggle G3 to Tactician AI
+    mesh.setSeatAI('G3', true, 'SHARD_TACTICIAN');
+    assert.equal(mesh.seats.G3.isAI, true);
+    assert.equal(mesh.seats.G3.aiType, 'SHARD_TACTICIAN');
 
     mesh.disconnect();
   });

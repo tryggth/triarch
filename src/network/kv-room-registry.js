@@ -1,34 +1,34 @@
 /**
  * TRIARCH: Cyclic Edge - Unified Room Registry
  * Single source of truth for public room discovery and Go-First die matchmaking.
- * Integrates with LobbyDiscoveryBus (local/broadcast) and Synadia JetStream KV ('TRIARCH_ROOMS').
+ * Operates across local tabs via localStorage ('triarch_public_rooms_v1') and Synadia JetStream KV ('TRIARCH_ROOMS').
  */
 
 import { GO_FIRST_TO_FACTION, FACTION_TO_GO_FIRST } from './protocol.js';
-import { globalDiscoveryBus, DISCOVERY_ACTIONS } from './discovery-bus.js';
 
 export const KV_BUCKET_NAME = 'TRIARCH_ROOMS';
 export const KV_ROOM_TTL_SECONDS = 3600; // 1 hour auto-expiry in NATS KV
 export const KV_MAX_VALUE_SIZE = 2048; // Compact room descriptor limit (bytes)
 export const ROOM_STALE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes stale pruning in lobby
+export const LOCAL_STORAGE_ROOMS_KEY = 'triarch_public_rooms_v1';
 
 export class KvRoomRegistry {
   /**
    * @param {Object} [options={}]
    * @param {any} [options.nc] - Optional NATS connection instance
    * @param {any} [options.kvStore] - Optional direct KV mock or instance
-   * @param {import('./discovery-bus.js').LobbyDiscoveryBus} [options.bus]
    */
   constructor(options = {}) {
     this.nc = options.nc || null;
     this.kv = options.kvStore || null;
-    this.bus = options.bus || options.discoveryBus || globalDiscoveryBus;
     this.isAvailable = !!this.kv;
     this.localFallbackRooms = new Map(); // roomCode -> RoomDescriptor
     this._updateListeners = new Set();
+    this._hostedWaitingRooms = new Set();
 
     this._initCodec();
-    this._initBus();
+    this._loadFromLocalStorage();
+    this._initLocalStorageListener();
   }
 
   _initCodec() {
@@ -43,19 +43,64 @@ export class KvRoomRegistry {
     };
   }
 
-  _initBus() {
-    if (this.bus && typeof this.bus.onRoomUpdate === 'function') {
-      this.bus.onRoomUpdate((action, payload) => {
-        if (action === DISCOVERY_ACTIONS.ROOM_ANNOUNCE && payload && payload.roomCode) {
-          const code = payload.roomCode.toUpperCase();
-          this.localFallbackRooms.set(code, this.formatDescriptor(payload));
-          this._notifyUpdate();
-        } else if (action === DISCOVERY_ACTIONS.ROOM_CLOSED && payload) {
-          const code = (typeof payload === 'string' ? payload : payload.roomCode || '').toUpperCase();
-          this.localFallbackRooms.delete(code);
+  _initLocalStorageListener() {
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('storage', (e) => {
+        if (e.key === LOCAL_STORAGE_ROOMS_KEY) {
+          this._loadFromLocalStorage();
           this._notifyUpdate();
         }
       });
+
+      window.addEventListener('beforeunload', () => {
+        for (const code of this._hostedWaitingRooms) {
+          this.deleteRoom(code);
+        }
+      });
+    }
+  }
+
+  _saveToLocalStorage() {
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const obj = {};
+        for (const [code, desc] of this.localFallbackRooms.entries()) {
+          obj[code] = desc;
+        }
+        localStorage.setItem(LOCAL_STORAGE_ROOMS_KEY, JSON.stringify(obj));
+      } catch (err) {
+        // Fallback for private browsing or quota limits
+      }
+    }
+  }
+
+  _loadFromLocalStorage() {
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const raw = localStorage.getItem(LOCAL_STORAGE_ROOMS_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed === 'object') {
+            const currentCodes = new Set(Object.keys(parsed).map((k) => k.toUpperCase()));
+            for (const code of Array.from(this.localFallbackRooms.keys())) {
+              if (!currentCodes.has(code) && !this._hostedWaitingRooms.has(code)) {
+                this.localFallbackRooms.delete(code);
+              }
+            }
+            for (const [code, desc] of Object.entries(parsed)) {
+              if (desc && desc.roomCode) {
+                this.localFallbackRooms.set(code.toUpperCase(), this.formatDescriptor(desc));
+              }
+            }
+          }
+        } else {
+          for (const code of Array.from(this.localFallbackRooms.keys())) {
+            if (!this._hostedWaitingRooms.has(code)) {
+              this.localFallbackRooms.delete(code);
+            }
+          }
+        }
+      } catch (err) {}
     }
   }
 
@@ -76,12 +121,11 @@ export class KvRoomRegistry {
   }
 
   /**
-   * Solicits instant room announcements from all active hosts.
+   * Refreshes rooms from storage and notifies listeners.
    */
   broadcastLobbyQuery() {
-    if (this.bus) {
-      this.bus.queryLobby();
-    }
+    this._loadFromLocalStorage();
+    this._notifyUpdate();
   }
 
   static getRoomKey(roomCode) {
@@ -97,7 +141,6 @@ export class KvRoomRegistry {
   async init(nc = null) {
     if (nc) {
       this.nc = nc;
-      if (this.bus) this.bus.nc = this.nc;
     }
     if (this.kv) {
       this.isAvailable = true;
@@ -163,12 +206,13 @@ export class KvRoomRegistry {
     const g2 = buildSeat('G2', 'cyan', 'Cyan Sentinel');
     const g3 = buildSeat('G3', 'amber', 'Amber Keeper');
 
-    let count = 0;
-    if (g1.claimed) count++;
-    if (g2.claimed) count++;
-    if (g3.claimed) count++;
-    if (count === 0) count = 1;
+    const seats = {
+      G1: g1,
+      G2: g2,
+      G3: g3
+    };
 
+    const count = Object.values(seats).filter((s) => s && s.claimed).length || 1;
     const isFull = count >= 3;
     const status = isFull ? 'ACTIVE' : (rawData.status || 'WAITING');
     const roomCode = (rawData.roomCode || 'TR-XXXX').toUpperCase();
@@ -189,15 +233,7 @@ export class KvRoomRegistry {
       createdAt,
       updatedAt,
       lastSeen,
-      seats: {
-        G1: g1,
-        G2: g2,
-        G3: g3,
-        // Aliases for game combat state adapter compatibility
-        ruby: g1,
-        cyan: g2,
-        amber: g3
-      }
+      seats
     };
   }
 
@@ -246,12 +282,10 @@ export class KvRoomRegistry {
     }
 
     this.localFallbackRooms.set(code, descriptor);
-
-    if (this.bus) {
-      this.bus.startAdvertising(descriptor);
-    }
-
+    this._hostedWaitingRooms.add(code);
+    this._saveToLocalStorage();
     this._notifyUpdate();
+
     return descriptor;
   }
 
@@ -281,7 +315,14 @@ export class KvRoomRegistry {
     const updatedSeats = { ...current.seats };
     for (const d of ['G1', 'G2', 'G3']) {
       if (d !== normalizedDie && updatedSeats[d]?.peerId === peerId) {
-        updatedSeats[d] = { peerId: null, name: null, claimed: false, isAI: false };
+        updatedSeats[d] = {
+          peerId: null,
+          name: null,
+          claimed: false,
+          isAI: false,
+          die: d,
+          faction: GO_FIRST_TO_FACTION[d]
+        };
       }
     }
 
@@ -289,14 +330,12 @@ export class KvRoomRegistry {
       peerId,
       name: peerName || `Player (${normalizedDie})`,
       claimed: true,
-      isAI: false
+      isAI: false,
+      die: normalizedDie,
+      faction: GO_FIRST_TO_FACTION[normalizedDie]
     };
 
-    let count = 0;
-    if (updatedSeats.G1?.claimed) count++;
-    if (updatedSeats.G2?.claimed) count++;
-    if (updatedSeats.G3?.claimed) count++;
-
+    const count = Object.values(updatedSeats).filter((s) => s && s.claimed).length;
     const isFull = count >= 3;
     const status = isFull ? 'ACTIVE' : 'WAITING';
 
@@ -325,13 +364,14 @@ export class KvRoomRegistry {
 
     if (isFull) {
       this.localFallbackRooms.delete(code);
-      if (this.bus) this.bus.stopAdvertising(code);
+      this._hostedWaitingRooms.delete(code);
     } else {
       this.localFallbackRooms.set(code, descriptor);
-      if (this.bus) this.bus.updateDescriptor(code, descriptor);
     }
 
+    this._saveToLocalStorage();
     this._notifyUpdate();
+
     return descriptor;
   }
 
@@ -395,12 +435,12 @@ export class KvRoomRegistry {
 
     if (formatted.isFull) {
       this.localFallbackRooms.delete(code);
-      if (this.bus) this.bus.stopAdvertising(code);
+      this._hostedWaitingRooms.delete(code);
     } else {
       this.localFallbackRooms.set(code, formatted);
-      if (this.bus) this.bus.updateDescriptor(code, formatted);
     }
 
+    this._saveToLocalStorage();
     this._notifyUpdate();
   }
 
@@ -425,14 +465,18 @@ export class KvRoomRegistry {
       } catch (err) {}
     }
 
+    if (!this.localFallbackRooms.has(code)) {
+      this._loadFromLocalStorage();
+    }
+
     return this.localFallbackRooms.get(code) || null;
   }
 
   /**
-   * Lists all active waiting rooms, pruning stale rooms older than maxStaleMs (default: 6s).
+   * Lists all active waiting rooms, pruning stale rooms older than maxStaleMs (default: 15 minutes).
    * @param {Object} [options={}]
    * @param {boolean} [options.onlyWaiting=false]
-   * @param {number} [options.maxStaleMs=6000]
+   * @param {number} [options.maxStaleMs=900000]
    * @returns {Promise<Object[]>}
    */
   async listActiveRooms(options = {}) {
@@ -464,18 +508,20 @@ export class KvRoomRegistry {
       } catch (err) {}
     }
 
-    // 2. Query in-memory discovery fallback rooms with 6s stale pruning
+    // 2. Query in-memory and localStorage rooms
+    this._loadFromLocalStorage();
     for (const [code, desc] of this.localFallbackRooms.entries()) {
-      if (desc && (now - desc.lastSeen) <= maxStaleMs) {
+      if (desc && now - desc.lastSeen <= maxStaleMs) {
         const formatted = this.formatDescriptor(desc);
         if (!onlyWaiting || (formatted.status === 'WAITING' && !formatted.isFull)) {
           if (!roomMap.has(formatted.roomCode)) {
             roomMap.set(formatted.roomCode, formatted);
           }
         }
-      } else if (desc && (now - desc.lastSeen) > maxStaleMs) {
+      } else if (desc && now - desc.lastSeen > maxStaleMs) {
         // Prune stale room
         this.localFallbackRooms.delete(code);
+        this._hostedWaitingRooms.delete(code);
       }
     }
 
@@ -498,11 +544,8 @@ export class KvRoomRegistry {
     }
 
     this.localFallbackRooms.delete(code);
-
-    if (this.bus) {
-      this.bus.stopAdvertising(code);
-    }
-
+    this._hostedWaitingRooms.delete(code);
+    this._saveToLocalStorage();
     this._notifyUpdate();
   }
 }

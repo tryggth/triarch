@@ -80,7 +80,7 @@ describe('In-Memory JetStream KV Room Registry CRUD', () => {
     assert.ok(fetched);
     assert.equal(fetched.roomCode, 'TR-9X');
     assert.equal(fetched.hostPeerId, hostPeer);
-    assert.equal(fetched.seats.ruby.name, 'HostArchon');
+    assert.equal(fetched.seats.G1.name, 'HostArchon');
   });
 
   test('Deletes room descriptor immediately upon leave/teardown', async () => {
@@ -168,9 +168,9 @@ describe('TTL & Stale Record Filtering', () => {
     });
     staleDesc.updatedAt = twoHoursAgo;
 
-    registry.localFallbackRooms.set(KvRoomRegistry.getRoomKey('TR-STALE'), staleDesc);
+    registry.localFallbackRooms.set('TR-STALE', staleDesc);
 
-    const activeRooms = await registry.listActiveRooms();
+    const activeRooms = await registry.listActiveRooms({ maxStaleMs: 3600 * 1000 });
     const activeCodes = activeRooms.map(r => r.roomCode);
 
     assert.ok(activeCodes.includes('TR-FRESH'));

@@ -17,8 +17,6 @@ import {
   createDraftReveal,
   verifyCommitment
 } from '../crypto/commit.js';
-import { toast } from '../ui/toast.js';
-import { sfx } from '../audio/sfx.js';
 
 export class NetworkGameStateAdapter {
   /**
@@ -47,12 +45,12 @@ export class NetworkGameStateAdapter {
       this.isMultiplayer = true;
       this.game.startMatch({
         mode: payload.mode || 'CYCLIC_SHOWDOWN',
-        rubyAI: this.mesh.seats.ruby.isAI,
-        cyanAI: this.mesh.seats.cyan.isAI,
-        amberAI: this.mesh.seats.amber.isAI
+        rubyAI: this.mesh.seats.G1?.isAI ?? this.mesh.seats.ruby?.isAI,
+        cyanAI: this.mesh.seats.G2?.isAI ?? this.mesh.seats.cyan?.isAI,
+        amberAI: this.mesh.seats.G3?.isAI ?? this.mesh.seats.amber?.isAI
       });
-      toast.show('Multiplayer Match Launched!', 'success', 2500);
-      sfx.playDominanceChime();
+      this.game.emit('NOTIFICATION', { message: 'Multiplayer Match Launched!', type: 'success', duration: 2500 });
+      this.game.emit('PLAY_SFX', 'dominance');
     });
 
     // Listen to peer departures for instant bot takeover
@@ -76,23 +74,24 @@ export class NetworkGameStateAdapter {
         seatData.peerId = null;
         seatData.isAI = true;
         seatData.aiType = seatData.aiType || 'CYCLIC_EXPLOITER';
-        seatData.name = `${this.game.players[seatKey]?.name || seatKey} (Bot Sub)`;
+        seatData.name = `Bot (${seatData.aiType.replace('_', ' ')})`;
 
-        if (this.game.players[seatKey]) {
-          this.game.players[seatKey].isAI = true;
-          this.game.players[seatKey].aiType = seatData.aiType;
-          this.game.players[seatKey].name = seatData.name;
+        const factionKey = seatData.faction || (seatKey === 'G1' ? 'ruby' : seatKey === 'G2' ? 'cyan' : seatKey === 'G3' ? 'amber' : seatKey);
+        if (this.game.players[factionKey]) {
+          this.game.players[factionKey].isAI = true;
+          this.game.players[factionKey].aiType = seatData.aiType;
+          this.game.players[factionKey].name = seatData.name;
         }
 
         // If player had an unrevealed commitment, auto-reveal default faction die
-        if (this.peerCommitments.has(seatKey) && !this.peerReveals.has(seatKey)) {
-          const defaultDie = this.game.players[seatKey]?.currentDie || TRIARCH_STANDARD[0];
-          this.peerReveals.set(seatKey, {
+        if (this.peerCommitments.has(factionKey) && !this.peerReveals.has(factionKey)) {
+          const defaultDie = this.game.players[factionKey]?.currentDie || TRIARCH_STANDARD[0];
+          this.peerReveals.set(factionKey, {
             dieId: defaultDie.id,
             salt: 'auto_sub_salt',
             verified: true
           });
-          this.game.setPlayerDie(seatKey, defaultDie);
+          this.game.setPlayerDie(factionKey, defaultDie);
         }
 
         // If host, synchronize updated seat state
@@ -100,7 +99,11 @@ export class NetworkGameStateAdapter {
           this.mesh.broadcastSeatState();
         }
 
-        toast.show(`⚠️ Player disconnected. Seat ${seatKey.toUpperCase()} converted to AI Bot.`, 'warning', 3500);
+        this.game.emit('NOTIFICATION', {
+          message: `⚠️ Player disconnected. Seat ${seatKey.toUpperCase()} converted to AI Bot.`,
+          type: 'warning',
+          duration: 3500
+        });
         this.game.notify();
       }
     }
@@ -188,7 +191,11 @@ export class NetworkGameStateAdapter {
       }, { peerId: this.mesh.peerId, round: this.game.roundNumber });
 
       this.mesh.broadcastAction(envelope);
-      toast.show('🔒 Stance Concealed: SHA-256 Commitment Broadcasted', 'info', 2500);
+      this.game.emit('NOTIFICATION', {
+        message: '🔒 Stance Concealed: SHA-256 Commitment Broadcasted',
+        type: 'info',
+        duration: 2500
+      });
     } else {
       // Open selection
       this.localConcealedSecret = null;
@@ -287,7 +294,11 @@ export class NetworkGameStateAdapter {
           this.game.currentTurnIndex = 0;
           this.game.phase = GAME_PHASES.TACTICAL_TURN;
           this.game.notify();
-          toast.show('🎲 Initiative Rolled! Pole positions locked.', 'info', 2500);
+          this.game.emit('NOTIFICATION', {
+            message: '🎲 Initiative Rolled! Pole positions locked.',
+            type: 'info',
+            duration: 2500
+          });
         }
         break;
       }
@@ -298,7 +309,11 @@ export class NetworkGameStateAdapter {
             this.peerCommitments.set(seat, payload.commitment);
           }
           this.game.commitTacticalTurn(seat, payload);
-          toast.show(`⚡ ${this.game.players[seat]?.name || seat} locked tactical stance!`, 'info', 2000);
+          this.game.emit('NOTIFICATION', {
+            message: `⚡ ${this.game.players[seat]?.name || seat} locked tactical stance!`,
+            type: 'info',
+            duration: 2000
+          });
         }
         break;
       }
@@ -306,7 +321,11 @@ export class NetworkGameStateAdapter {
       case ACTION_TYPES.DRAFT_COMMIT: {
         if (seat && payload.commitment) {
           this.peerCommitments.set(seat, payload.commitment);
-          toast.show(`🔒 ${this.game.players[seat]?.name || seat} committed a secret stance!`, 'info', 2000);
+          this.game.emit('NOTIFICATION', {
+            message: `🔒 ${this.game.players[seat]?.name || seat} committed a secret stance!`,
+            type: 'info',
+            duration: 2000
+          });
           this.game.notify();
         }
         break;
@@ -321,9 +340,17 @@ export class NetworkGameStateAdapter {
               const dieObj = TRIARCH_STANDARD.find(d => d.id === payload.die) || TRIARCH_STANDARD[0];
               this.game.setPlayerDie(seat, dieObj);
               this.peerReveals.set(seat, { dieId: payload.die, salt: payload.salt, verified: true });
-              toast.show(`🔓 ${this.game.players[seat]?.name || seat} revealed: ${dieObj.name} (Verified ✅)`, 'success', 2500);
+              this.game.emit('NOTIFICATION', {
+                message: `🔓 ${this.game.players[seat]?.name || seat} revealed: ${dieObj.name} (Verified ✅)`,
+                type: 'success',
+                duration: 2500
+              });
             } else {
-              toast.show(`🚨 TAMPER ALERT: ${seat} reveal failed SHA-256 verification!`, 'error', 4000);
+              this.game.emit('NOTIFICATION', {
+                message: `🚨 TAMPER ALERT: ${seat} reveal failed SHA-256 verification!`,
+                type: 'error',
+                duration: 4000
+              });
               this.peerReveals.set(seat, { dieId: payload.die, salt: payload.salt, verified: false });
             }
           } else {
@@ -383,8 +410,8 @@ export class NetworkGameStateAdapter {
           };
 
           this.game.notify();
-          sfx.playClash();
-          if (payload.winnerId) sfx.playDominanceChime();
+          this.game.emit('PLAY_SFX', 'clash');
+          if (payload.winnerId) this.game.emit('PLAY_SFX', 'dominance');
         }
         break;
       }

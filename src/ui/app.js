@@ -72,6 +72,17 @@ class TriarchApp {
     // Subscribe to game state changes
     this.game.subscribe(() => this.renderGameState());
 
+    // Listen to GameStateManager events (MVC Decoupling)
+    this.game.on('NOTIFICATION', ({ message, type, duration }) => {
+      toast.show(message, type, duration);
+    });
+    this.game.on('PLAY_SFX', (sfxName) => {
+      if (sfxName === 'clash') sfx.playClash();
+      else if (sfxName === 'dominance') sfx.playDominanceChime();
+      else if (sfxName === 'click') sfx.playClick();
+      else if (sfxName === 'roll') sfx.playDiceRoll();
+    });
+
     // Initial renders
     this.renderGameState();
     this.renderSimulatorPreset();

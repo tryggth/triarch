@@ -7,6 +7,7 @@ export class GameStateManager {
   constructor(options = {}) {
     this.options = { ...options };
     this.listeners = new Set();
+    this.eventListeners = new Map();
     this.init(options);
   }
 
@@ -120,6 +121,46 @@ export class GameStateManager {
         listener(this);
       } catch (err) {
         console.error('Error in GameState listener:', err);
+      }
+    }
+  }
+
+  /**
+   * Event Emitter: Registers an event listener (e.g. 'NOTIFICATION', 'PLAY_SFX').
+   * @param {string} event
+   * @param {(payload: any) => void} cb
+   * @returns {() => void} Unsubscribe function
+   */
+  on(event, cb) {
+    if (!this.eventListeners.has(event)) {
+      this.eventListeners.set(event, new Set());
+    }
+    this.eventListeners.get(event).add(cb);
+    return () => this.off(event, cb);
+  }
+
+  /**
+   * Event Emitter: Unregisters an event listener.
+   * @param {string} event
+   * @param {(payload: any) => void} cb
+   */
+  off(event, cb) {
+    this.eventListeners.get(event)?.delete(cb);
+  }
+
+  /**
+   * Event Emitter: Dispatches an event to registered listeners.
+   * @param {string} event
+   * @param {any} [payload]
+   */
+  emit(event, payload) {
+    const listeners = this.eventListeners.get(event);
+    if (!listeners) return;
+    for (const cb of listeners) {
+      try {
+        cb(payload);
+      } catch (err) {
+        console.error(`Error in GameState event listener for [${event}]:`, err);
       }
     }
   }

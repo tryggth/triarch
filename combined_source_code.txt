@@ -1,7 +1,7 @@
 ================================================================================
  TRIARCH: CYCLIC EDGE - COMBINED SOURCE CODE BUNDLE
- Generated on: 2026-08-26T21:20:33.928Z
- Total Source Files: 59
+ Generated on: 2026-08-26T21:35:36.954Z
+ Total Source Files: 58
 ================================================================================
 
 
@@ -1522,8 +1522,6 @@ import {
   createDraftReveal,
   verifyCommitment
 } from '../crypto/commit.js';
-import { toast } from '../ui/toast.js';
-import { sfx } from '../audio/sfx.js';
 
 export class NetworkGameStateAdapter {
   /**
@@ -1552,12 +1550,12 @@ export class NetworkGameStateAdapter {
       this.isMultiplayer = true;
       this.game.startMatch({
         mode: payload.mode || 'CYCLIC_SHOWDOWN',
-        rubyAI: this.mesh.seats.ruby.isAI,
-        cyanAI: this.mesh.seats.cyan.isAI,
-        amberAI: this.mesh.seats.amber.isAI
+        rubyAI: this.mesh.seats.G1?.isAI ?? this.mesh.seats.ruby?.isAI,
+        cyanAI: this.mesh.seats.G2?.isAI ?? this.mesh.seats.cyan?.isAI,
+        amberAI: this.mesh.seats.G3?.isAI ?? this.mesh.seats.amber?.isAI
       });
-      toast.show('Multiplayer Match Launched!', 'success', 2500);
-      sfx.playDominanceChime();
+      this.game.emit('NOTIFICATION', { message: 'Multiplayer Match Launched!', type: 'success', duration: 2500 });
+      this.game.emit('PLAY_SFX', 'dominance');
     });
 
     // Listen to peer departures for instant bot takeover
@@ -1581,23 +1579,24 @@ export class NetworkGameStateAdapter {
         seatData.peerId = null;
         seatData.isAI = true;
         seatData.aiType = seatData.aiType || 'CYCLIC_EXPLOITER';
-        seatData.name = `${this.game.players[seatKey]?.name || seatKey} (Bot Sub)`;
+        seatData.name = `Bot (${seatData.aiType.replace('_', ' ')})`;
 
-        if (this.game.players[seatKey]) {
-          this.game.players[seatKey].isAI = true;
-          this.game.players[seatKey].aiType = seatData.aiType;
-          this.game.players[seatKey].name = seatData.name;
+        const factionKey = seatData.faction || (seatKey === 'G1' ? 'ruby' : seatKey === 'G2' ? 'cyan' : seatKey === 'G3' ? 'amber' : seatKey);
+        if (this.game.players[factionKey]) {
+          this.game.players[factionKey].isAI = true;
+          this.game.players[factionKey].aiType = seatData.aiType;
+          this.game.players[factionKey].name = seatData.name;
         }
 
         // If player had an unrevealed commitment, auto-reveal default faction die
-        if (this.peerCommitments.has(seatKey) && !this.peerReveals.has(seatKey)) {
-          const defaultDie = this.game.players[seatKey]?.currentDie || TRIARCH_STANDARD[0];
-          this.peerReveals.set(seatKey, {
+        if (this.peerCommitments.has(factionKey) && !this.peerReveals.has(factionKey)) {
+          const defaultDie = this.game.players[factionKey]?.currentDie || TRIARCH_STANDARD[0];
+          this.peerReveals.set(factionKey, {
             dieId: defaultDie.id,
             salt: 'auto_sub_salt',
             verified: true
           });
-          this.game.setPlayerDie(seatKey, defaultDie);
+          this.game.setPlayerDie(factionKey, defaultDie);
         }
 
         // If host, synchronize updated seat state
@@ -1605,7 +1604,11 @@ export class NetworkGameStateAdapter {
           this.mesh.broadcastSeatState();
         }
 
-        toast.show(`⚠️ Player disconnected. Seat ${seatKey.toUpperCase()} converted to AI Bot.`, 'warning', 3500);
+        this.game.emit('NOTIFICATION', {
+          message: `⚠️ Player disconnected. Seat ${seatKey.toUpperCase()} converted to AI Bot.`,
+          type: 'warning',
+          duration: 3500
+        });
         this.game.notify();
       }
     }
@@ -1693,7 +1696,11 @@ export class NetworkGameStateAdapter {
       }, { peerId: this.mesh.peerId, round: this.game.roundNumber });
 
       this.mesh.broadcastAction(envelope);
-      toast.show('🔒 Stance Concealed: SHA-256 Commitment Broadcasted', 'info', 2500);
+      this.game.emit('NOTIFICATION', {
+        message: '🔒 Stance Concealed: SHA-256 Commitment Broadcasted',
+        type: 'info',
+        duration: 2500
+      });
     } else {
       // Open selection
       this.localConcealedSecret = null;
@@ -1792,7 +1799,11 @@ export class NetworkGameStateAdapter {
           this.game.currentTurnIndex = 0;
           this.game.phase = GAME_PHASES.TACTICAL_TURN;
           this.game.notify();
-          toast.show('🎲 Initiative Rolled! Pole positions locked.', 'info', 2500);
+          this.game.emit('NOTIFICATION', {
+            message: '🎲 Initiative Rolled! Pole positions locked.',
+            type: 'info',
+            duration: 2500
+          });
         }
         break;
       }
@@ -1803,7 +1814,11 @@ export class NetworkGameStateAdapter {
             this.peerCommitments.set(seat, payload.commitment);
           }
           this.game.commitTacticalTurn(seat, payload);
-          toast.show(`⚡ ${this.game.players[seat]?.name || seat} locked tactical stance!`, 'info', 2000);
+          this.game.emit('NOTIFICATION', {
+            message: `⚡ ${this.game.players[seat]?.name || seat} locked tactical stance!`,
+            type: 'info',
+            duration: 2000
+          });
         }
         break;
       }
@@ -1811,7 +1826,11 @@ export class NetworkGameStateAdapter {
       case ACTION_TYPES.DRAFT_COMMIT: {
         if (seat && payload.commitment) {
           this.peerCommitments.set(seat, payload.commitment);
-          toast.show(`🔒 ${this.game.players[seat]?.name || seat} committed a secret stance!`, 'info', 2000);
+          this.game.emit('NOTIFICATION', {
+            message: `🔒 ${this.game.players[seat]?.name || seat} committed a secret stance!`,
+            type: 'info',
+            duration: 2000
+          });
           this.game.notify();
         }
         break;
@@ -1826,9 +1845,17 @@ export class NetworkGameStateAdapter {
               const dieObj = TRIARCH_STANDARD.find(d => d.id === payload.die) || TRIARCH_STANDARD[0];
               this.game.setPlayerDie(seat, dieObj);
               this.peerReveals.set(seat, { dieId: payload.die, salt: payload.salt, verified: true });
-              toast.show(`🔓 ${this.game.players[seat]?.name || seat} revealed: ${dieObj.name} (Verified ✅)`, 'success', 2500);
+              this.game.emit('NOTIFICATION', {
+                message: `🔓 ${this.game.players[seat]?.name || seat} revealed: ${dieObj.name} (Verified ✅)`,
+                type: 'success',
+                duration: 2500
+              });
             } else {
-              toast.show(`🚨 TAMPER ALERT: ${seat} reveal failed SHA-256 verification!`, 'error', 4000);
+              this.game.emit('NOTIFICATION', {
+                message: `🚨 TAMPER ALERT: ${seat} reveal failed SHA-256 verification!`,
+                type: 'error',
+                duration: 4000
+              });
               this.peerReveals.set(seat, { dieId: payload.die, salt: payload.salt, verified: false });
             }
           } else {
@@ -1888,8 +1915,8 @@ export class NetworkGameStateAdapter {
           };
 
           this.game.notify();
-          sfx.playClash();
-          if (payload.winnerId) sfx.playDominanceChime();
+          this.game.emit('PLAY_SFX', 'clash');
+          if (payload.winnerId) this.game.emit('PLAY_SFX', 'dominance');
         }
         break;
       }
@@ -2073,6 +2100,7 @@ export class GameStateManager {
   constructor(options = {}) {
     this.options = { ...options };
     this.listeners = new Set();
+    this.eventListeners = new Map();
     this.init(options);
   }
 
@@ -2186,6 +2214,46 @@ export class GameStateManager {
         listener(this);
       } catch (err) {
         console.error('Error in GameState listener:', err);
+      }
+    }
+  }
+
+  /**
+   * Event Emitter: Registers an event listener (e.g. 'NOTIFICATION', 'PLAY_SFX').
+   * @param {string} event
+   * @param {(payload: any) => void} cb
+   * @returns {() => void} Unsubscribe function
+   */
+  on(event, cb) {
+    if (!this.eventListeners.has(event)) {
+      this.eventListeners.set(event, new Set());
+    }
+    this.eventListeners.get(event).add(cb);
+    return () => this.off(event, cb);
+  }
+
+  /**
+   * Event Emitter: Unregisters an event listener.
+   * @param {string} event
+   * @param {(payload: any) => void} cb
+   */
+  off(event, cb) {
+    this.eventListeners.get(event)?.delete(cb);
+  }
+
+  /**
+   * Event Emitter: Dispatches an event to registered listeners.
+   * @param {string} event
+   * @param {any} [payload]
+   */
+  emit(event, payload) {
+    const listeners = this.eventListeners.get(event);
+    if (!listeners) return;
+    for (const cb of listeners) {
+      try {
+        cb(payload);
+      } catch (err) {
+        console.error(`Error in GameState event listener for [${event}]:`, err);
       }
     }
   }
@@ -3576,233 +3644,6 @@ export function getNgscAuthenticator(natsWsModule) {
 
 
 /* =============================================================================
- * FILE: src/network/discovery-bus.js
- * ============================================================================= */
-
-/**
- * TRIARCH: Cyclic Edge - Global Lobby Discovery Bus
- * Lightweight in-memory room discovery over BroadcastChannel ('triarch-lobby') and NATS ('triarch.lobby').
- * Zero localStorage dependency, 2-second host pulse, and instant query-response.
- */
-
-export const LOBBY_GLOBAL_CHANNEL = 'triarch-lobby';
-export const DISCOVERY_ACTIONS = Object.freeze({
-  LOBBY_QUERY: 'LOBBY_QUERY',
-  ROOM_ANNOUNCE: 'ROOM_ANNOUNCE',
-  ROOM_CLOSED: 'ROOM_CLOSED'
-});
-
-export class LobbyDiscoveryBus {
-  /**
-   * @param {Object} [options={}]
-   * @param {any} [options.nc] - Optional NATS connection instance
-   */
-  constructor(options = {}) {
-    this.nc = options.nc || null;
-    this.listeners = new Set();
-    this._advertiseTimers = new Map(); // roomCode -> setInterval timer
-    this._activeDescriptors = new Map(); // roomCode -> descriptor
-
-    this.bc = null;
-    if (typeof BroadcastChannel !== 'undefined') {
-      try {
-        this.bc = new BroadcastChannel(LOBBY_GLOBAL_CHANNEL);
-        this.bc.onmessage = (event) => this._handleMessage(event.data);
-        if (typeof this.bc.unref === 'function') {
-          this.bc.unref();
-        }
-      } catch (e) {
-        this.bc = null;
-      }
-    }
-
-    // Host beforeunload guard: automatically announce room closure on window close/refresh
-    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
-      this._unloadListener = () => {
-        for (const code of this._activeDescriptors.keys()) {
-          this.stopAdvertising(code);
-        }
-      };
-      window.addEventListener('beforeunload', this._unloadListener);
-    }
-  }
-
-  _post(data) {
-    if (this.bc) {
-      try {
-        this.bc.postMessage(data);
-      } catch (err) {
-        console.warn('[DiscoveryBus] BC post error:', err);
-      }
-    }
-
-    if (this.nc && typeof this.nc.publish === 'function' && typeof this.nc.stringCodec === 'function') {
-      try {
-        const sc = this.nc.stringCodec();
-        this.nc.publish('triarch.lobby', sc.encode(JSON.stringify(data)));
-      } catch (err) {}
-    }
-  }
-
-  _handleMessage(data) {
-    if (!data || typeof data !== 'object' || !data.type) return;
-
-    // 1. Inbound query: Active hosts immediately respond with current descriptor
-    if (data.type === DISCOVERY_ACTIONS.LOBBY_QUERY) {
-      for (const descriptor of this._activeDescriptors.values()) {
-        this._post({
-          type: DISCOVERY_ACTIONS.ROOM_ANNOUNCE,
-          descriptor: { ...descriptor, lastSeen: Date.now() },
-          t: Date.now()
-        });
-      }
-      return;
-    }
-
-    // 2. Inbound room announcement / pulse
-    if (data.type === DISCOVERY_ACTIONS.ROOM_ANNOUNCE && data.descriptor) {
-      const desc = { ...data.descriptor, lastSeen: Date.now() };
-      for (const cb of this.listeners) {
-        try { cb(DISCOVERY_ACTIONS.ROOM_ANNOUNCE, desc); } catch (e) {}
-      }
-      return;
-    }
-
-    // 3. Inbound room closed / cancelled
-    if (data.type === DISCOVERY_ACTIONS.ROOM_CLOSED && data.roomCode) {
-      for (const cb of this.listeners) {
-        try { cb(DISCOVERY_ACTIONS.ROOM_CLOSED, data.roomCode); } catch (e) {}
-      }
-      return;
-    }
-  }
-
-  /**
-   * Dispatches a LOBBY_QUERY to solicit instant announcements from active hosts.
-   */
-  queryLobby() {
-    this._post({
-      type: DISCOVERY_ACTIONS.LOBBY_QUERY,
-      t: Date.now()
-    });
-  }
-
-  /**
-   * Starts periodic 2-second heartbeat pulse for a hosted waiting room.
-   * @param {Object} descriptor - RoomDescriptor
-   */
-  startAdvertising(descriptor) {
-    if (!descriptor || !descriptor.roomCode) return;
-    const code = descriptor.roomCode.toUpperCase();
-    const liveDesc = { ...descriptor, lastSeen: Date.now() };
-
-    this._activeDescriptors.set(code, liveDesc);
-
-    // Immediate pulse
-    this._post({
-      type: DISCOVERY_ACTIONS.ROOM_ANNOUNCE,
-      descriptor: liveDesc,
-      t: Date.now()
-    });
-
-    // 2-second heartbeat pulse
-    if (this._advertiseTimers.has(code)) {
-      clearInterval(this._advertiseTimers.get(code));
-    }
-
-    const timer = setInterval(() => {
-      const live = this._activeDescriptors.get(code);
-      if (live) {
-        live.lastSeen = Date.now();
-        this._post({
-          type: DISCOVERY_ACTIONS.ROOM_ANNOUNCE,
-          descriptor: live,
-          t: Date.now()
-        });
-      }
-    }, 2000);
-
-    if (timer && typeof timer.unref === 'function') {
-      timer.unref();
-    }
-
-    this._advertiseTimers.set(code, timer);
-  }
-
-  /**
-   * Updates the in-memory descriptor and immediately broadcasts an announcement.
-   * @param {string} roomCode
-   * @param {Object} updatedDescriptor
-   */
-  updateDescriptor(roomCode, updatedDescriptor) {
-    const code = roomCode.toUpperCase();
-    const liveDesc = { ...updatedDescriptor, lastSeen: Date.now() };
-
-    if (this._activeDescriptors.has(code)) {
-      this._activeDescriptors.set(code, liveDesc);
-    }
-
-    this._post({
-      type: DISCOVERY_ACTIONS.ROOM_ANNOUNCE,
-      descriptor: liveDesc,
-      t: Date.now()
-    });
-  }
-
-  /**
-   * Stops advertising a room and broadcasts ROOM_CLOSED.
-   * @param {string} roomCode
-   */
-  stopAdvertising(roomCode) {
-    const code = roomCode.toUpperCase();
-
-    if (this._advertiseTimers.has(code)) {
-      clearInterval(this._advertiseTimers.get(code));
-      this._advertiseTimers.delete(code);
-    }
-
-    this._activeDescriptors.delete(code);
-
-    this._post({
-      type: DISCOVERY_ACTIONS.ROOM_CLOSED,
-      roomCode: code,
-      t: Date.now()
-    });
-  }
-
-  /**
-   * Subscribes to room announcements and closures.
-   * @param {(action: string, payload: any) => void} callback
-   * @returns {() => void} Unsubscribe function
-   */
-  onRoomUpdate(callback) {
-    this.listeners.add(callback);
-    return () => this.listeners.delete(callback);
-  }
-
-  destroy() {
-    for (const timer of this._advertiseTimers.values()) {
-      clearInterval(timer);
-    }
-    this._advertiseTimers.clear();
-    this._activeDescriptors.clear();
-    this.listeners.clear();
-
-    if (this.bc) {
-      this.bc.close();
-      this.bc = null;
-    }
-    if (typeof window !== 'undefined' && this._unloadListener) {
-      window.removeEventListener('beforeunload', this._unloadListener);
-    }
-  }
-}
-
-export const globalDiscoveryBus = new LobbyDiscoveryBus();
-
-
-
-/* =============================================================================
  * FILE: src/network/index.js
  * ============================================================================= */
 
@@ -3816,7 +3657,6 @@ export * from './peer-mesh.js';
 export * from './transports/index.js';
 export * from './nats-config.js';
 export * from './kv-room-registry.js';
-export * from './discovery-bus.js';
 export * from './creds/index.js';
 
 
@@ -3828,34 +3668,34 @@ export * from './creds/index.js';
 /**
  * TRIARCH: Cyclic Edge - Unified Room Registry
  * Single source of truth for public room discovery and Go-First die matchmaking.
- * Integrates with LobbyDiscoveryBus (local/broadcast) and Synadia JetStream KV ('TRIARCH_ROOMS').
+ * Operates across local tabs via localStorage ('triarch_public_rooms_v1') and Synadia JetStream KV ('TRIARCH_ROOMS').
  */
 
 import { GO_FIRST_TO_FACTION, FACTION_TO_GO_FIRST } from './protocol.js';
-import { globalDiscoveryBus, DISCOVERY_ACTIONS } from './discovery-bus.js';
 
 export const KV_BUCKET_NAME = 'TRIARCH_ROOMS';
 export const KV_ROOM_TTL_SECONDS = 3600; // 1 hour auto-expiry in NATS KV
 export const KV_MAX_VALUE_SIZE = 2048; // Compact room descriptor limit (bytes)
 export const ROOM_STALE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes stale pruning in lobby
+export const LOCAL_STORAGE_ROOMS_KEY = 'triarch_public_rooms_v1';
 
 export class KvRoomRegistry {
   /**
    * @param {Object} [options={}]
    * @param {any} [options.nc] - Optional NATS connection instance
    * @param {any} [options.kvStore] - Optional direct KV mock or instance
-   * @param {import('./discovery-bus.js').LobbyDiscoveryBus} [options.bus]
    */
   constructor(options = {}) {
     this.nc = options.nc || null;
     this.kv = options.kvStore || null;
-    this.bus = options.bus || options.discoveryBus || globalDiscoveryBus;
     this.isAvailable = !!this.kv;
     this.localFallbackRooms = new Map(); // roomCode -> RoomDescriptor
     this._updateListeners = new Set();
+    this._hostedWaitingRooms = new Set();
 
     this._initCodec();
-    this._initBus();
+    this._loadFromLocalStorage();
+    this._initLocalStorageListener();
   }
 
   _initCodec() {
@@ -3870,19 +3710,64 @@ export class KvRoomRegistry {
     };
   }
 
-  _initBus() {
-    if (this.bus && typeof this.bus.onRoomUpdate === 'function') {
-      this.bus.onRoomUpdate((action, payload) => {
-        if (action === DISCOVERY_ACTIONS.ROOM_ANNOUNCE && payload && payload.roomCode) {
-          const code = payload.roomCode.toUpperCase();
-          this.localFallbackRooms.set(code, this.formatDescriptor(payload));
-          this._notifyUpdate();
-        } else if (action === DISCOVERY_ACTIONS.ROOM_CLOSED && payload) {
-          const code = (typeof payload === 'string' ? payload : payload.roomCode || '').toUpperCase();
-          this.localFallbackRooms.delete(code);
+  _initLocalStorageListener() {
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      window.addEventListener('storage', (e) => {
+        if (e.key === LOCAL_STORAGE_ROOMS_KEY) {
+          this._loadFromLocalStorage();
           this._notifyUpdate();
         }
       });
+
+      window.addEventListener('beforeunload', () => {
+        for (const code of this._hostedWaitingRooms) {
+          this.deleteRoom(code);
+        }
+      });
+    }
+  }
+
+  _saveToLocalStorage() {
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const obj = {};
+        for (const [code, desc] of this.localFallbackRooms.entries()) {
+          obj[code] = desc;
+        }
+        localStorage.setItem(LOCAL_STORAGE_ROOMS_KEY, JSON.stringify(obj));
+      } catch (err) {
+        // Fallback for private browsing or quota limits
+      }
+    }
+  }
+
+  _loadFromLocalStorage() {
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const raw = localStorage.getItem(LOCAL_STORAGE_ROOMS_KEY);
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (parsed && typeof parsed === 'object') {
+            const currentCodes = new Set(Object.keys(parsed).map((k) => k.toUpperCase()));
+            for (const code of Array.from(this.localFallbackRooms.keys())) {
+              if (!currentCodes.has(code) && !this._hostedWaitingRooms.has(code)) {
+                this.localFallbackRooms.delete(code);
+              }
+            }
+            for (const [code, desc] of Object.entries(parsed)) {
+              if (desc && desc.roomCode) {
+                this.localFallbackRooms.set(code.toUpperCase(), this.formatDescriptor(desc));
+              }
+            }
+          }
+        } else {
+          for (const code of Array.from(this.localFallbackRooms.keys())) {
+            if (!this._hostedWaitingRooms.has(code)) {
+              this.localFallbackRooms.delete(code);
+            }
+          }
+        }
+      } catch (err) {}
     }
   }
 
@@ -3903,12 +3788,11 @@ export class KvRoomRegistry {
   }
 
   /**
-   * Solicits instant room announcements from all active hosts.
+   * Refreshes rooms from storage and notifies listeners.
    */
   broadcastLobbyQuery() {
-    if (this.bus) {
-      this.bus.queryLobby();
-    }
+    this._loadFromLocalStorage();
+    this._notifyUpdate();
   }
 
   static getRoomKey(roomCode) {
@@ -3924,7 +3808,6 @@ export class KvRoomRegistry {
   async init(nc = null) {
     if (nc) {
       this.nc = nc;
-      if (this.bus) this.bus.nc = this.nc;
     }
     if (this.kv) {
       this.isAvailable = true;
@@ -3990,12 +3873,13 @@ export class KvRoomRegistry {
     const g2 = buildSeat('G2', 'cyan', 'Cyan Sentinel');
     const g3 = buildSeat('G3', 'amber', 'Amber Keeper');
 
-    let count = 0;
-    if (g1.claimed) count++;
-    if (g2.claimed) count++;
-    if (g3.claimed) count++;
-    if (count === 0) count = 1;
+    const seats = {
+      G1: g1,
+      G2: g2,
+      G3: g3
+    };
 
+    const count = Object.values(seats).filter((s) => s && s.claimed).length || 1;
     const isFull = count >= 3;
     const status = isFull ? 'ACTIVE' : (rawData.status || 'WAITING');
     const roomCode = (rawData.roomCode || 'TR-XXXX').toUpperCase();
@@ -4016,15 +3900,7 @@ export class KvRoomRegistry {
       createdAt,
       updatedAt,
       lastSeen,
-      seats: {
-        G1: g1,
-        G2: g2,
-        G3: g3,
-        // Aliases for game combat state adapter compatibility
-        ruby: g1,
-        cyan: g2,
-        amber: g3
-      }
+      seats
     };
   }
 
@@ -4073,12 +3949,10 @@ export class KvRoomRegistry {
     }
 
     this.localFallbackRooms.set(code, descriptor);
-
-    if (this.bus) {
-      this.bus.startAdvertising(descriptor);
-    }
-
+    this._hostedWaitingRooms.add(code);
+    this._saveToLocalStorage();
     this._notifyUpdate();
+
     return descriptor;
   }
 
@@ -4108,7 +3982,14 @@ export class KvRoomRegistry {
     const updatedSeats = { ...current.seats };
     for (const d of ['G1', 'G2', 'G3']) {
       if (d !== normalizedDie && updatedSeats[d]?.peerId === peerId) {
-        updatedSeats[d] = { peerId: null, name: null, claimed: false, isAI: false };
+        updatedSeats[d] = {
+          peerId: null,
+          name: null,
+          claimed: false,
+          isAI: false,
+          die: d,
+          faction: GO_FIRST_TO_FACTION[d]
+        };
       }
     }
 
@@ -4116,14 +3997,12 @@ export class KvRoomRegistry {
       peerId,
       name: peerName || `Player (${normalizedDie})`,
       claimed: true,
-      isAI: false
+      isAI: false,
+      die: normalizedDie,
+      faction: GO_FIRST_TO_FACTION[normalizedDie]
     };
 
-    let count = 0;
-    if (updatedSeats.G1?.claimed) count++;
-    if (updatedSeats.G2?.claimed) count++;
-    if (updatedSeats.G3?.claimed) count++;
-
+    const count = Object.values(updatedSeats).filter((s) => s && s.claimed).length;
     const isFull = count >= 3;
     const status = isFull ? 'ACTIVE' : 'WAITING';
 
@@ -4152,13 +4031,14 @@ export class KvRoomRegistry {
 
     if (isFull) {
       this.localFallbackRooms.delete(code);
-      if (this.bus) this.bus.stopAdvertising(code);
+      this._hostedWaitingRooms.delete(code);
     } else {
       this.localFallbackRooms.set(code, descriptor);
-      if (this.bus) this.bus.updateDescriptor(code, descriptor);
     }
 
+    this._saveToLocalStorage();
     this._notifyUpdate();
+
     return descriptor;
   }
 
@@ -4222,12 +4102,12 @@ export class KvRoomRegistry {
 
     if (formatted.isFull) {
       this.localFallbackRooms.delete(code);
-      if (this.bus) this.bus.stopAdvertising(code);
+      this._hostedWaitingRooms.delete(code);
     } else {
       this.localFallbackRooms.set(code, formatted);
-      if (this.bus) this.bus.updateDescriptor(code, formatted);
     }
 
+    this._saveToLocalStorage();
     this._notifyUpdate();
   }
 
@@ -4252,14 +4132,18 @@ export class KvRoomRegistry {
       } catch (err) {}
     }
 
+    if (!this.localFallbackRooms.has(code)) {
+      this._loadFromLocalStorage();
+    }
+
     return this.localFallbackRooms.get(code) || null;
   }
 
   /**
-   * Lists all active waiting rooms, pruning stale rooms older than maxStaleMs (default: 6s).
+   * Lists all active waiting rooms, pruning stale rooms older than maxStaleMs (default: 15 minutes).
    * @param {Object} [options={}]
    * @param {boolean} [options.onlyWaiting=false]
-   * @param {number} [options.maxStaleMs=6000]
+   * @param {number} [options.maxStaleMs=900000]
    * @returns {Promise<Object[]>}
    */
   async listActiveRooms(options = {}) {
@@ -4291,18 +4175,20 @@ export class KvRoomRegistry {
       } catch (err) {}
     }
 
-    // 2. Query in-memory discovery fallback rooms with 6s stale pruning
+    // 2. Query in-memory and localStorage rooms
+    this._loadFromLocalStorage();
     for (const [code, desc] of this.localFallbackRooms.entries()) {
-      if (desc && (now - desc.lastSeen) <= maxStaleMs) {
+      if (desc && now - desc.lastSeen <= maxStaleMs) {
         const formatted = this.formatDescriptor(desc);
         if (!onlyWaiting || (formatted.status === 'WAITING' && !formatted.isFull)) {
           if (!roomMap.has(formatted.roomCode)) {
             roomMap.set(formatted.roomCode, formatted);
           }
         }
-      } else if (desc && (now - desc.lastSeen) > maxStaleMs) {
+      } else if (desc && now - desc.lastSeen > maxStaleMs) {
         // Prune stale room
         this.localFallbackRooms.delete(code);
+        this._hostedWaitingRooms.delete(code);
       }
     }
 
@@ -4325,11 +4211,8 @@ export class KvRoomRegistry {
     }
 
     this.localFallbackRooms.delete(code);
-
-    if (this.bus) {
-      this.bus.stopAdvertising(code);
-    }
-
+    this._hostedWaitingRooms.delete(code);
+    this._saveToLocalStorage();
     this._notifyUpdate();
   }
 }
@@ -4610,21 +4493,23 @@ export class PeerMeshManager {
    * @returns {string}
    */
   getLocalFaction() {
-    return GO_FIRST_TO_FACTION[this.localSeat] || this.localSeat || 'ruby';
+    return GO_FIRST_TO_FACTION[this.localSeat] || 'ruby';
   }
 
   _resetSeats() {
-    const defaultSeat = (isAI = true, aiType = 'CYCLIC_EXPLOITER') => ({ peerId: null, name: null, isAI, aiType, ready: false });
-    const g1 = defaultSeat(false, null);
-    const g2 = defaultSeat(true, 'MAX_EV');
-    const g3 = defaultSeat(true, 'SHARD_TACTICIAN');
+    const defaultSeat = (die, isAI = true, aiType = 'CYCLIC_EXPLOITER') => ({
+      peerId: null,
+      name: null,
+      isAI,
+      aiType,
+      ready: false,
+      die,
+      faction: GO_FIRST_TO_FACTION[die]
+    });
     this.seats = {
-      G1: g1,
-      G2: g2,
-      G3: g3,
-      ruby: g1,
-      cyan: g2,
-      amber: g3
+      G1: defaultSeat('G1', false, null),
+      G2: defaultSeat('G2', true, 'MAX_EV'),
+      G3: defaultSeat('G3', true, 'SHARD_TACTICIAN')
     };
   }
 
@@ -4652,7 +4537,7 @@ export class PeerMeshManager {
     if (this.isHost) {
       const hostDie = initialDie.startsWith('G') ? initialDie : (FACTION_TO_GO_FIRST[initialDie] || 'G1');
       const hostFaction = GO_FIRST_TO_FACTION[hostDie] || 'ruby';
-      this.localSeat = hostFaction;
+      this.localSeat = hostDie;
       const hostSeatData = {
         peerId: this.peerId,
         name: this.peerName,
@@ -4663,7 +4548,6 @@ export class PeerMeshManager {
         faction: hostFaction
       };
       this.seats[hostDie] = hostSeatData;
-      this.seats[hostFaction] = hostSeatData;
     }
 
     // Set up transport handlers
@@ -4706,7 +4590,6 @@ export class PeerMeshManager {
               faction
             };
             this.seats[d] = botSeat;
-            this.seats[faction] = botSeat;
           }
         }
         this.broadcastSeatState();
@@ -4792,9 +4675,15 @@ export class PeerMeshManager {
         // Vacate any prior seat claimed by this peer
         for (const d of ['G1', 'G2', 'G3']) {
           if (d !== targetDie && this.seats[d]?.peerId === peerId) {
-            const empty = { peerId: null, name: null, isAI: false, aiType: null, ready: false };
-            this.seats[d] = empty;
-            this.seats[GO_FIRST_TO_FACTION[d]] = empty;
+            this.seats[d] = {
+              peerId: null,
+              name: null,
+              isAI: false,
+              aiType: null,
+              ready: false,
+              die: d,
+              faction: GO_FIRST_TO_FACTION[d]
+            };
           }
         }
 
@@ -4809,7 +4698,6 @@ export class PeerMeshManager {
             faction: targetFaction
           };
           this.seats[targetDie] = seatData;
-          this.seats[targetFaction] = seatData;
 
           this.broadcastSeatState();
           globalKvRegistry.claimSeat(this.roomCode, targetDie, peerId, peerName);
@@ -4848,22 +4736,19 @@ export class PeerMeshManager {
     if (envelope.type === ACTION_TYPES.SEAT_STATE) {
       if (envelope.payload.seats) {
         const raw = envelope.payload.seats;
-        const g1 = raw.G1 || raw.ruby || { peerId: null, name: null, isAI: false, ready: false };
-        const g2 = raw.G2 || raw.cyan || { peerId: null, name: null, isAI: false, ready: false };
-        const g3 = raw.G3 || raw.amber || { peerId: null, name: null, isAI: false, ready: false };
+        const g1 = raw.G1 || raw.ruby || { peerId: null, name: null, isAI: false, ready: false, die: 'G1', faction: 'ruby' };
+        const g2 = raw.G2 || raw.cyan || { peerId: null, name: null, isAI: false, ready: false, die: 'G2', faction: 'cyan' };
+        const g3 = raw.G3 || raw.amber || { peerId: null, name: null, isAI: false, ready: false, die: 'G3', faction: 'amber' };
         this.seats = {
           G1: g1,
           G2: g2,
-          G3: g3,
-          ruby: g1,
-          cyan: g2,
-          amber: g3
+          G3: g3
         };
         // Determine local seat
         this.localSeat = null;
-        for (const d of ['G1', 'G2', 'G3', 'ruby', 'cyan', 'amber']) {
+        for (const d of ['G1', 'G2', 'G3']) {
           if (this.seats[d]?.peerId === this.peerId) {
-            this.localSeat = GO_FIRST_TO_FACTION[d] || d;
+            this.localSeat = d;
             break;
           }
         }
@@ -4896,14 +4781,20 @@ export class PeerMeshManager {
     const dieKey = targetSeat.startsWith('G') ? targetSeat : (FACTION_TO_GO_FIRST[targetSeat] || 'G1');
     const factionKey = GO_FIRST_TO_FACTION[dieKey] || 'ruby';
 
-    this.localSeat = factionKey;
+    this.localSeat = dieKey;
 
     if (this.isHost) {
       for (const d of ['G1', 'G2', 'G3']) {
         if (d !== dieKey && this.seats[d]?.peerId === this.peerId) {
-          const empty = { peerId: null, name: null, isAI: false, aiType: null, ready: false };
-          this.seats[d] = empty;
-          this.seats[GO_FIRST_TO_FACTION[d]] = empty;
+          this.seats[d] = {
+            peerId: null,
+            name: null,
+            isAI: false,
+            aiType: null,
+            ready: false,
+            die: d,
+            faction: GO_FIRST_TO_FACTION[d]
+          };
         }
       }
       const hostSeatData = {
@@ -4916,8 +4807,7 @@ export class PeerMeshManager {
         faction: factionKey
       };
       this.seats[dieKey] = hostSeatData;
-      this.seats[factionKey] = hostSeatData;
-      this.localSeat = factionKey;
+      this.localSeat = dieKey;
       this.broadcastSeatState();
       globalKvRegistry.claimSeat(this.roomCode, dieKey, this.peerId, this.peerName);
     } else {
@@ -4935,7 +4825,7 @@ export class PeerMeshManager {
    * Finds and claims first unoccupied seat.
    */
   requestAvailableSeat() {
-    for (const s of SEATS) {
+    for (const s of ['G1', 'G2', 'G3']) {
       if (!this.seats[s].peerId || this.seats[s].isAI) {
         this.claimSeat(s);
         break;
@@ -4945,7 +4835,7 @@ export class PeerMeshManager {
 
   /**
    * Host toggles an unoccupied seat between human open and AI Bot archetype.
-   * @param {string} seat - 'ruby', 'cyan', 'amber' or 'G1', 'G2', 'G3'
+   * @param {string} seat - 'G1', 'G2', 'G3'
    * @param {boolean} isAI
    * @param {string} [aiType='CYCLIC_EXPLOITER']
    */
@@ -4973,7 +4863,6 @@ export class PeerMeshManager {
     };
 
     this.seats[dieKey] = seatData;
-    this.seats[factionKey] = seatData;
     this.broadcastSeatState();
   }
 
@@ -5300,9 +5189,22 @@ export function computeStateChecksum(gameState) {
 import { createTransport, TRANSPORT_TYPES } from './transports/index.js';
 import { loadNatsConfig } from './nats-config.js';
 
-// Unique random peer ID generator
+// Unique persistent peer ID generator (reconnects with same ID across refreshes)
 export function generatePeerId() {
-  return 'peer_' + Math.random().toString(36).substring(2, 10) + '_' + Date.now().toString(36);
+  if (typeof localStorage !== 'undefined') {
+    try {
+      const existing = localStorage.getItem('triarch_client_id');
+      if (existing && typeof existing === 'string' && existing.trim()) {
+        return existing.trim();
+      }
+      const newId = 'client_' + Math.random().toString(36).substring(2, 10) + '_' + Date.now().toString(36);
+      localStorage.setItem('triarch_client_id', newId);
+      return newId;
+    } catch (e) {
+      // Fallback for private browsing or restricted environments
+    }
+  }
+  return 'client_' + Math.random().toString(36).substring(2, 10) + '_' + Date.now().toString(36);
 }
 
 // Generate short readable 4-character room code (e.g. TR-9X)
@@ -6110,6 +6012,17 @@ class TriarchApp {
 
     // Subscribe to game state changes
     this.game.subscribe(() => this.renderGameState());
+
+    // Listen to GameStateManager events (MVC Decoupling)
+    this.game.on('NOTIFICATION', ({ message, type, duration }) => {
+      toast.show(message, type, duration);
+    });
+    this.game.on('PLAY_SFX', (sfxName) => {
+      if (sfxName === 'clash') sfx.playClash();
+      else if (sfxName === 'dominance') sfx.playDominanceChime();
+      else if (sfxName === 'click') sfx.playClick();
+      else if (sfxName === 'roll') sfx.playDiceRoll();
+    });
 
     // Initial renders
     this.renderGameState();
@@ -7717,7 +7630,6 @@ import { sfx } from '../audio/sfx.js';
 import { haptics } from '../audio/haptics.js';
 import { ACTION_TYPES, createActionEnvelope, GO_FIRST_TO_FACTION, FACTION_TO_GO_FIRST } from '../network/protocol.js';
 import { globalKvRegistry } from '../network/kv-room-registry.js';
-import { globalDiscoveryBus } from '../network/discovery-bus.js';
 import { GO_FIRST_DICE } from '../math/dice.js';
 
 export class MultiplayerLobbyModal {
@@ -7773,7 +7685,7 @@ export class MultiplayerLobbyModal {
     if (this.modal) this.close();
     if (this.waitingModal) this.closeWaitingModal();
 
-    // Subscribe to live room updates from global discovery bus & JetStream KV
+    // Subscribe to live room updates from JetStream KV / localStorage
     if (this._unsubscribeRooms) {
       this._unsubscribeRooms();
       this._unsubscribeRooms = null;
@@ -7784,29 +7696,16 @@ export class MultiplayerLobbyModal {
       }
     });
 
-    if (this._unsubscribeBus) {
-      this._unsubscribeBus();
-      this._unsubscribeBus = null;
-    }
-    this._unsubscribeBus = globalDiscoveryBus.onRoomUpdate(() => {
-      if (this.isOpen()) {
-        this.loadAndRenderRooms();
-      }
-    });
-
-    // Solicit active hosts immediately upon opening
-    globalKvRegistry.broadcastLobbyQuery();
-
-    // Start background lobby query polling (every 1.5s)
+    // Start 2-second polling loop while modal is open
     if (this._discoveryPollTimer) {
       clearInterval(this._discoveryPollTimer);
       this._discoveryPollTimer = null;
     }
     this._discoveryPollTimer = setInterval(() => {
       if (this.isOpen()) {
-        globalKvRegistry.broadcastLobbyQuery();
+        this.loadAndRenderRooms();
       }
-    }, 1500);
+    }, 2000);
 
     const overlay = document.createElement('div');
     overlay.id = 'lobby-modal-overlay';
@@ -8227,10 +8126,10 @@ export class MultiplayerLobbyModal {
       forceStartBtn.onclick = () => {
         sfx.playClick();
         // Fill open seats with AI
-        for (const s of ['ruby', 'cyan', 'amber']) {
-          if (!this.mesh.seats[s].peerId) {
+        for (const s of ['G1', 'G2', 'G3']) {
+          if (!this.mesh.seats[s]?.peerId) {
             this.mesh.seats[s].isAI = true;
-            this.mesh.seats[s].name = `Bot_${s.toUpperCase()}`;
+            this.mesh.seats[s].name = `Bot_${s}`;
           }
         }
         const startEnvelope = createActionEnvelope(ACTION_TYPES.GAME_START, null, {
@@ -8242,9 +8141,9 @@ export class MultiplayerLobbyModal {
         this.mesh.broadcastAction(startEnvelope);
         this.net.isMultiplayer = true;
         this.net.game.startMatch({
-          rubyAI: this.mesh.seats.ruby.isAI,
-          cyanAI: this.mesh.seats.cyan.isAI,
-          amberAI: this.mesh.seats.amber.isAI
+          rubyAI: this.mesh.seats.G1?.isAI,
+          cyanAI: this.mesh.seats.G2?.isAI,
+          amberAI: this.mesh.seats.G3?.isAI
         });
         this.closeWaitingModal();
         toast.show('Match Started with AI Bots!', 'success', 2500);
@@ -8266,8 +8165,8 @@ export class MultiplayerLobbyModal {
     ];
 
     container.innerHTML = pods.map((p) => {
-      const seatData = this.mesh.seats[p.faction];
-      const isLocal = this.mesh.localSeat === p.faction;
+      const seatData = this.mesh.seats[p.dieKey];
+      const isLocal = this.mesh.localSeat === p.dieKey || this.mesh.localSeat === p.faction;
       const isClaimed = seatData && (seatData.peerId || seatData.isAI);
 
       return `
@@ -8289,8 +8188,8 @@ export class MultiplayerLobbyModal {
     }).join('');
 
     // Update dynamic status label
-    const humanCount = ['ruby', 'cyan', 'amber'].filter(s => this.mesh.seats[s]?.peerId && !this.mesh.seats[s]?.isAI).length;
-    const distinctHumans = new Set(['ruby', 'cyan', 'amber'].map(s => this.mesh.seats[s]?.peerId).filter(Boolean)).size;
+    const humanCount = ['G1', 'G2', 'G3'].filter(s => this.mesh.seats[s]?.peerId && !this.mesh.seats[s]?.isAI).length;
+    const distinctHumans = new Set(['G1', 'G2', 'G3'].map(s => this.mesh.seats[s]?.peerId).filter(Boolean)).size;
     const count = Math.min(humanCount, distinctHumans);
     const statusLabel = this.waitingModal.querySelector('#waiting-status-label');
     if (statusLabel) {
@@ -8319,10 +8218,6 @@ export class MultiplayerLobbyModal {
     if (this._unsubscribeRooms) {
       this._unsubscribeRooms();
       this._unsubscribeRooms = null;
-    }
-    if (this._unsubscribeBus) {
-      this._unsubscribeBus();
-      this._unsubscribeBus = null;
     }
     if (this.qrScanner) {
       this.qrScanner.stop();
@@ -9862,7 +9757,7 @@ export function createDiceVisual(container, die) {
  * Robust offline caching, WebRTC P2P mesh support, NATS WebSocket adapter, and instant upgrade activation.
  */
 
-const CACHE_NAME = 'triarch-cache-v1.12.0';
+const CACHE_NAME = 'triarch-cache-v1.13.0';
 
 const PRECACHE_ASSETS = [
   './',
@@ -9885,7 +9780,6 @@ const PRECACHE_ASSETS = [
   './src/network/transports/index.js',
   './src/network/nats-config.js',
   './src/network/kv-room-registry.js',
-  './src/network/discovery-bus.js',
   './src/network/creds/ngs-creds.js',
   './src/network/creds/index.js',
   './src/network/index.js',
@@ -10230,154 +10124,6 @@ describe('Dice Presets Registry', () => {
       assert.ok(preset.name.length > 0);
       assert.ok(preset.dice.length >= 3);
     }
-  });
-});
-
-
-
-/* =============================================================================
- * FILE: test/discovery.test.js
- * ============================================================================= */
-
-/**
- * Automated Verification Suite - Global Lobby Discovery & Real-Time Synchronization (100% In-Memory)
- * STRICT QUOTA GUARD: Zero outbound network requests during test execution.
- */
-
-import { test, describe } from 'node:test';
-import assert from 'node:assert/strict';
-import { KvRoomRegistry } from '../src/network/kv-room-registry.js';
-import { LobbyDiscoveryBus, DISCOVERY_ACTIONS } from '../src/network/discovery-bus.js';
-
-/**
- * Creates an in-memory mock broadcast bus that routes messages across simulating nodes.
- */
-function createMockDiscoveryNetwork() {
-  const nodes = new Set();
-
-  return {
-    createNodeBus() {
-      const bus = new LobbyDiscoveryBus();
-      nodes.add(bus);
-
-      // Intercept bus._post to simulate local multi-tab BroadcastChannel
-      bus._post = (data) => {
-        for (const otherBus of nodes) {
-          if (otherBus !== bus) {
-            // Deliver asynchronously
-            setImmediate(() => {
-              otherBus._handleMessage(data);
-            });
-          }
-        }
-      };
-
-      return bus;
-    }
-  };
-}
-
-describe('Global Lobby Discovery Bus & Cross-Tab Room Sync', () => {
-  test('Multi-Tab Discovery: Node B discovers Node A room via LOBBY_QUERY handshake', async () => {
-    const net = createMockDiscoveryNetwork();
-
-    // Node A (Host)
-    const busA = net.createNodeBus();
-    const registryA = new KvRoomRegistry({ discoveryBus: busA });
-
-    // Node B (Joining Player)
-    const busB = net.createNodeBus();
-    const registryB = new KvRoomRegistry({ discoveryBus: busB });
-
-    // 1. Node A creates room TR-1A with Go-First die G1
-    const roomA = await registryA.createRoom('TR-1A', 'peer_alice', {
-      gameName: 'Grand Arena',
-      hostDie: 'G1',
-      hostName: 'Alice'
-    });
-    assert.equal(roomA.roomCode, 'TR-1A');
-
-    // 2. Node B opens lobby and dispatches LOBBY_QUERY
-    let nodeBUpdated = false;
-    registryB.onRoomsUpdate(() => {
-      nodeBUpdated = true;
-    });
-
-    registryB.broadcastLobbyQuery();
-
-    // Wait for async message delivery loop
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    assert.equal(nodeBUpdated, true, 'Node B must receive room update event upon query response');
-
-    // 3. Node B lists active rooms
-    const roomsForB = await registryB.listActiveRooms({ onlyWaiting: true });
-    assert.equal(roomsForB.length, 1);
-    assert.equal(roomsForB[0].roomCode, 'TR-1A');
-    assert.equal(roomsForB[0].gameName, 'Grand Arena');
-    assert.equal(roomsForB[0].seats.G1.claimed, true);
-    assert.equal(roomsForB[0].seats.G1.name, 'Alice');
-    assert.equal(roomsForB[0].seats.G2.claimed, false, 'G2 must be open for Node B');
-    assert.equal(roomsForB[0].seats.G3.claimed, false, 'G3 must be open for Node B');
-
-    // Teardown
-    busA.destroy();
-    busB.destroy();
-  });
-
-  test('Room Deletion: When Node A room is deleted/cancelled, Node B removes it from listing', async () => {
-    const net = createMockDiscoveryNetwork();
-
-    const busA = net.createNodeBus();
-    const registryA = new KvRoomRegistry({ discoveryBus: busA });
-
-    const busB = net.createNodeBus();
-    const registryB = new KvRoomRegistry({ discoveryBus: busB });
-
-    // 1. Create room
-    await registryA.createRoom('TR-CANCEL', 'peer_host', { hostDie: 'G1' });
-    registryB.broadcastLobbyQuery();
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    let activeRoomsB = await registryB.listActiveRooms({ onlyWaiting: true });
-    assert.ok(activeRoomsB.some(r => r.roomCode === 'TR-CANCEL'));
-
-    // 2. Host closes/deletes room
-    await registryA.deleteRoom('TR-CANCEL');
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    activeRoomsB = await registryB.listActiveRooms({ onlyWaiting: true });
-    assert.equal(activeRoomsB.some(r => r.roomCode === 'TR-CANCEL'), false, 'Deleted room must be purged from Node B');
-
-    busA.destroy();
-    busB.destroy();
-  });
-
-  test('Auto-Start Transition: Room automatically purges from waiting list when full', async () => {
-    const net = createMockDiscoveryNetwork();
-
-    const busA = net.createNodeBus();
-    const registryA = new KvRoomRegistry({ discoveryBus: busA });
-
-    const busB = net.createNodeBus();
-    const registryB = new KvRoomRegistry({ discoveryBus: busB });
-
-    // 1. Create room with G1
-    await registryA.createRoom('TR-FULL-AUTO', 'peer_a', { hostDie: 'G1' });
-    registryB.broadcastLobbyQuery();
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    // 2. Player 2 and Player 3 join
-    await registryA.claimSeat('TR-FULL-AUTO', 'G2', 'peer_b', 'Bob');
-    await registryA.claimSeat('TR-FULL-AUTO', 'G3', 'peer_c', 'Charlie');
-
-    await new Promise((resolve) => setTimeout(resolve, 50));
-
-    const waitingB = await registryB.listActiveRooms({ onlyWaiting: true });
-    assert.equal(waitingB.some(r => r.roomCode === 'TR-FULL-AUTO'), false, 'Full ACTIVE room must not appear in waiting list');
-
-    busA.destroy();
-    busB.destroy();
   });
 });
 
@@ -11299,7 +11045,7 @@ describe('In-Memory JetStream KV Room Registry CRUD', () => {
     assert.ok(fetched);
     assert.equal(fetched.roomCode, 'TR-9X');
     assert.equal(fetched.hostPeerId, hostPeer);
-    assert.equal(fetched.seats.ruby.name, 'HostArchon');
+    assert.equal(fetched.seats.G1.name, 'HostArchon');
   });
 
   test('Deletes room descriptor immediately upon leave/teardown', async () => {
@@ -11387,9 +11133,9 @@ describe('TTL & Stale Record Filtering', () => {
     });
     staleDesc.updatedAt = twoHoursAgo;
 
-    registry.localFallbackRooms.set(KvRoomRegistry.getRoomKey('TR-STALE'), staleDesc);
+    registry.localFallbackRooms.set('TR-STALE', staleDesc);
 
-    const activeRooms = await registry.listActiveRooms();
+    const activeRooms = await registry.listActiveRooms({ maxStaleMs: 3600 * 1000 });
     const activeCodes = activeRooms.map(r => r.roomCode);
 
     assert.ok(activeCodes.includes('TR-FRESH'));
@@ -11730,19 +11476,19 @@ describe('Peer Mesh Seating Negotiation', () => {
     mesh.connect('TEST', true, 'HostPlayer');
 
     assert.equal(mesh.isHost, true);
-    assert.equal(mesh.localSeat, 'ruby');
-    assert.equal(mesh.seats.ruby.isAI, false);
-    assert.equal(mesh.seats.cyan.isAI, true);
-    assert.equal(mesh.seats.amber.isAI, true);
+    assert.equal(mesh.localSeat, 'G1');
+    assert.equal(mesh.seats.G1.isAI, false);
+    assert.equal(mesh.seats.G2.isAI, true);
+    assert.equal(mesh.seats.G3.isAI, true);
 
-    // Toggle Cyan to human open seat
-    mesh.setSeatAI('cyan', false);
-    assert.equal(mesh.seats.cyan.isAI, false);
+    // Toggle G2 to human open seat
+    mesh.setSeatAI('G2', false);
+    assert.equal(mesh.seats.G2.isAI, false);
 
-    // Toggle Amber to Tactician AI
-    mesh.setSeatAI('amber', true, 'SHARD_TACTICIAN');
-    assert.equal(mesh.seats.amber.isAI, true);
-    assert.equal(mesh.seats.amber.aiType, 'SHARD_TACTICIAN');
+    // Toggle G3 to Tactician AI
+    mesh.setSeatAI('G3', true, 'SHARD_TACTICIAN');
+    assert.equal(mesh.seats.G3.isAI, true);
+    assert.equal(mesh.seats.G3.aiType, 'SHARD_TACTICIAN');
 
     mesh.disconnect();
   });
@@ -11872,6 +11618,146 @@ describe('Graph-Theoretic Cycle Detection', () => {
     const result = detectIntransitiveCycles(EFRON_DICE);
     assert.ok(result.isIntransitive);
     assert.ok(result.cycles.length >= 1);
+  });
+});
+
+
+
+/* =============================================================================
+ * FILE: test/refactor.test.js
+ * ============================================================================= */
+
+/**
+ * Automated Verification Suite - Refactored Architecture Verification (100% In-Memory)
+ * Tests persistent identity, unified G1/G2/G3 schema, event emitter decoupling, and localStorage sync.
+ */
+
+import { test, describe, beforeEach } from 'node:test';
+import assert from 'node:assert/strict';
+import { generatePeerId } from '../src/network/signaling.js';
+import { KvRoomRegistry, LOCAL_STORAGE_ROOMS_KEY } from '../src/network/kv-room-registry.js';
+import { GameStateManager } from '../src/game/state.js';
+import { NetworkGameStateAdapter } from '../src/game/network-state.js';
+import { PeerMeshManager } from '../src/network/peer-mesh.js';
+
+// Setup in-memory mock for localStorage in Node environment
+function setupMockLocalStorage() {
+  const store = new Map();
+  global.localStorage = {
+    getItem: (key) => store.get(key) || null,
+    setItem: (key, val) => store.set(key, String(val)),
+    removeItem: (key) => store.delete(key),
+    clear: () => store.clear()
+  };
+  return store;
+}
+
+describe('Persistent App Instance Identity', () => {
+  test('generatePeerId returns consistent ID stored in localStorage across calls', () => {
+    const store = setupMockLocalStorage();
+
+    const id1 = generatePeerId();
+    assert.ok(id1.startsWith('client_'));
+    assert.equal(store.get('triarch_client_id'), id1);
+
+    const id2 = generatePeerId();
+    assert.equal(id2, id1, 'Subsequent generatePeerId calls must return the same stored client ID');
+  });
+
+  test('generatePeerId uses pre-existing client ID if already present in localStorage', () => {
+    const store = setupMockLocalStorage();
+    store.set('triarch_client_id', 'client_custom_alpha_123');
+
+    const id = generatePeerId();
+    assert.equal(id, 'client_custom_alpha_123');
+  });
+});
+
+describe('Unified Single Seat Schema & formatDescriptor', () => {
+  test('formatDescriptor creates room using strictly G1, G2, G3 keys without aliases', () => {
+    const registry = new KvRoomRegistry();
+    const descriptor = registry.formatDescriptor({
+      roomCode: 'TR-TEST',
+      seats: {
+        G1: { peerId: 'peer_1', name: 'Alpha', claimed: true },
+        G2: { peerId: 'peer_2', name: 'Beta', claimed: true },
+        G3: { peerId: null, name: null, claimed: false }
+      }
+    });
+
+    assert.equal(descriptor.roomCode, 'TR-TEST');
+    assert.deepEqual(Object.keys(descriptor.seats).sort(), ['G1', 'G2', 'G3']);
+    assert.equal(descriptor.seats.ruby, undefined, 'ruby alias must not be present');
+    assert.equal(descriptor.seats.cyan, undefined, 'cyan alias must not be present');
+    assert.equal(descriptor.seats.amber, undefined, 'amber alias must not be present');
+    assert.equal(descriptor.playerCount, 2);
+    assert.equal(descriptor.isFull, false);
+    assert.equal(descriptor.status, 'WAITING');
+  });
+});
+
+describe('MVC Separation: GameStateManager Event Emitter', () => {
+  test('Registers, dispatches, and unregisters NOTIFICATION and PLAY_SFX events', () => {
+    const game = new GameStateManager();
+
+    const notifications = [];
+    const sounds = [];
+
+    const unsubNotif = game.on('NOTIFICATION', (payload) => {
+      notifications.push(payload);
+    });
+
+    const unsubSfx = game.on('PLAY_SFX', (sfxName) => {
+      sounds.push(sfxName);
+    });
+
+    game.emit('NOTIFICATION', { message: 'Test Alert', type: 'info' });
+    game.emit('PLAY_SFX', 'clash');
+
+    assert.equal(notifications.length, 1);
+    assert.equal(notifications[0].message, 'Test Alert');
+    assert.equal(sounds.length, 1);
+    assert.equal(sounds[0], 'clash');
+
+    // Unsubscribe
+    unsubNotif();
+    unsubSfx();
+
+    game.emit('NOTIFICATION', { message: 'Ignored', type: 'warning' });
+    game.emit('PLAY_SFX', 'dominance');
+
+    assert.equal(notifications.length, 1, 'Unsubscribed listener must not receive further events');
+    assert.equal(sounds.length, 1, 'Unsubscribed listener must not receive further events');
+  });
+});
+
+describe('Cross-Tab LocalStorage Room Synchronization', () => {
+  test('Local cross-tab sync writes to triarch_public_rooms_v1 and updates active listings', async () => {
+    const store = setupMockLocalStorage();
+
+    const registryA = new KvRoomRegistry();
+    const registryB = new KvRoomRegistry();
+
+    // Node A creates room
+    const roomA = await registryA.createRoom('TR-SYNC', 'peer_alice', {
+      gameName: 'Sync Arena',
+      hostDie: 'G1',
+      hostName: 'Alice'
+    });
+
+    assert.equal(roomA.roomCode, 'TR-SYNC');
+    assert.ok(store.has(LOCAL_STORAGE_ROOMS_KEY));
+
+    // Node B discovers room via localStorage
+    const discoveredB = await registryB.listActiveRooms({ onlyWaiting: true });
+    assert.equal(discoveredB.length, 1);
+    assert.equal(discoveredB[0].roomCode, 'TR-SYNC');
+    assert.equal(discoveredB[0].seats.G1.claimed, true);
+
+    // Node A deletes room
+    await registryA.deleteRoom('TR-SYNC');
+    const waitingAfterDelete = await registryB.listActiveRooms({ onlyWaiting: true });
+    assert.equal(waitingAfterDelete.length, 0, 'Deleted room must no longer be discoverable');
   });
 });
 

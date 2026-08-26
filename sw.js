@@ -3,7 +3,7 @@
  * Robust offline caching, WebRTC P2P mesh support, NATS WebSocket adapter, and instant upgrade activation.
  */
 
-const CACHE_NAME = 'triarch-cache-v1.12.0';
+const CACHE_NAME = 'triarch-cache-v1.13.0';
 
 const PRECACHE_ASSETS = [
   './',
@@ -26,7 +26,6 @@ const PRECACHE_ASSETS = [
   './src/network/transports/index.js',
   './src/network/nats-config.js',
   './src/network/kv-room-registry.js',
-  './src/network/discovery-bus.js',
   './src/network/creds/ngs-creds.js',
   './src/network/creds/index.js',
   './src/network/index.js',

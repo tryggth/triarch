@@ -11,7 +11,6 @@ import { sfx } from '../audio/sfx.js';
 import { haptics } from '../audio/haptics.js';
 import { ACTION_TYPES, createActionEnvelope, GO_FIRST_TO_FACTION, FACTION_TO_GO_FIRST } from '../network/protocol.js';
 import { globalKvRegistry } from '../network/kv-room-registry.js';
-import { globalDiscoveryBus } from '../network/discovery-bus.js';
 import { GO_FIRST_DICE } from '../math/dice.js';
 
 export class MultiplayerLobbyModal {
@@ -67,7 +66,7 @@ export class MultiplayerLobbyModal {
     if (this.modal) this.close();
     if (this.waitingModal) this.closeWaitingModal();
 
-    // Subscribe to live room updates from global discovery bus & JetStream KV
+    // Subscribe to live room updates from JetStream KV / localStorage
     if (this._unsubscribeRooms) {
       this._unsubscribeRooms();
       this._unsubscribeRooms = null;
@@ -78,29 +77,16 @@ export class MultiplayerLobbyModal {
       }
     });
 
-    if (this._unsubscribeBus) {
-      this._unsubscribeBus();
-      this._unsubscribeBus = null;
-    }
-    this._unsubscribeBus = globalDiscoveryBus.onRoomUpdate(() => {
-      if (this.isOpen()) {
-        this.loadAndRenderRooms();
-      }
-    });
-
-    // Solicit active hosts immediately upon opening
-    globalKvRegistry.broadcastLobbyQuery();
-
-    // Start background lobby query polling (every 1.5s)
+    // Start 2-second polling loop while modal is open
     if (this._discoveryPollTimer) {
       clearInterval(this._discoveryPollTimer);
       this._discoveryPollTimer = null;
     }
     this._discoveryPollTimer = setInterval(() => {
       if (this.isOpen()) {
-        globalKvRegistry.broadcastLobbyQuery();
+        this.loadAndRenderRooms();
       }
-    }, 1500);
+    }, 2000);
 
     const overlay = document.createElement('div');
     overlay.id = 'lobby-modal-overlay';
@@ -521,10 +507,10 @@ export class MultiplayerLobbyModal {
       forceStartBtn.onclick = () => {
         sfx.playClick();
         // Fill open seats with AI
-        for (const s of ['ruby', 'cyan', 'amber']) {
-          if (!this.mesh.seats[s].peerId) {
+        for (const s of ['G1', 'G2', 'G3']) {
+          if (!this.mesh.seats[s]?.peerId) {
             this.mesh.seats[s].isAI = true;
-            this.mesh.seats[s].name = `Bot_${s.toUpperCase()}`;
+            this.mesh.seats[s].name = `Bot_${s}`;
           }
         }
         const startEnvelope = createActionEnvelope(ACTION_TYPES.GAME_START, null, {
@@ -536,9 +522,9 @@ export class MultiplayerLobbyModal {
         this.mesh.broadcastAction(startEnvelope);
         this.net.isMultiplayer = true;
         this.net.game.startMatch({
-          rubyAI: this.mesh.seats.ruby.isAI,
-          cyanAI: this.mesh.seats.cyan.isAI,
-          amberAI: this.mesh.seats.amber.isAI
+          rubyAI: this.mesh.seats.G1?.isAI,
+          cyanAI: this.mesh.seats.G2?.isAI,
+          amberAI: this.mesh.seats.G3?.isAI
         });
         this.closeWaitingModal();
         toast.show('Match Started with AI Bots!', 'success', 2500);
@@ -560,8 +546,8 @@ export class MultiplayerLobbyModal {
     ];
 
     container.innerHTML = pods.map((p) => {
-      const seatData = this.mesh.seats[p.faction];
-      const isLocal = this.mesh.localSeat === p.faction;
+      const seatData = this.mesh.seats[p.dieKey];
+      const isLocal = this.mesh.localSeat === p.dieKey || this.mesh.localSeat === p.faction;
       const isClaimed = seatData && (seatData.peerId || seatData.isAI);
 
       return `
@@ -583,8 +569,8 @@ export class MultiplayerLobbyModal {
     }).join('');
 
     // Update dynamic status label
-    const humanCount = ['ruby', 'cyan', 'amber'].filter(s => this.mesh.seats[s]?.peerId && !this.mesh.seats[s]?.isAI).length;
-    const distinctHumans = new Set(['ruby', 'cyan', 'amber'].map(s => this.mesh.seats[s]?.peerId).filter(Boolean)).size;
+    const humanCount = ['G1', 'G2', 'G3'].filter(s => this.mesh.seats[s]?.peerId && !this.mesh.seats[s]?.isAI).length;
+    const distinctHumans = new Set(['G1', 'G2', 'G3'].map(s => this.mesh.seats[s]?.peerId).filter(Boolean)).size;
     const count = Math.min(humanCount, distinctHumans);
     const statusLabel = this.waitingModal.querySelector('#waiting-status-label');
     if (statusLabel) {
@@ -613,10 +599,6 @@ export class MultiplayerLobbyModal {
     if (this._unsubscribeRooms) {
       this._unsubscribeRooms();
       this._unsubscribeRooms = null;
-    }
-    if (this._unsubscribeBus) {
-      this._unsubscribeBus();
-      this._unsubscribeBus = null;
     }
     if (this.qrScanner) {
       this.qrScanner.stop();
