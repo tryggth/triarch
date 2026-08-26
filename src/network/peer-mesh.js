@@ -129,6 +129,9 @@ export class PeerMeshManager {
 
     // Start latency ping interval
     this._pingTimer = setInterval(() => this._measureLatency(), 4000);
+    if (this._pingTimer && typeof this._pingTimer.unref === 'function') {
+      this._pingTimer.unref();
+    }
 
     // Initial announce
     const hello = createActionEnvelope(ACTION_TYPES.PEER_HELLO, this.localSeat, {

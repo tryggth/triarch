@@ -66,6 +66,28 @@ export class MultiplayerLobbyModal {
     if (this.modal) this.close();
     if (this.waitingModal) this.closeWaitingModal();
 
+    // Subscribe to live room updates from global discovery bus & JetStream KV
+    if (this._unsubscribeRooms) {
+      this._unsubscribeRooms();
+      this._unsubscribeRooms = null;
+    }
+    this._unsubscribeRooms = globalKvRegistry.onRoomsUpdate(() => {
+      if (this.isOpen()) {
+        this.loadAndRenderRooms();
+      }
+    });
+
+    // Start background lobby query polling (solicits active hosts across tabs/devices)
+    if (this._discoveryPollTimer) {
+      clearInterval(this._discoveryPollTimer);
+      this._discoveryPollTimer = null;
+    }
+    this._discoveryPollTimer = setInterval(() => {
+      if (this.isOpen()) {
+        globalKvRegistry.broadcastLobbyQuery();
+      }
+    }, 2500);
+
     const overlay = document.createElement('div');
     overlay.id = 'lobby-modal-overlay';
     overlay.className = 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-xl animate-fade-in overflow-y-auto';
@@ -154,7 +176,10 @@ export class MultiplayerLobbyModal {
             <div class="flex items-center gap-2">
               <span class="text-sm">🌐</span>
               <h3 class="text-xs font-bold uppercase tracking-wider text-slate-200 font-mono">Available Public Games</h3>
-              <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-500/30">1-Click Die Join</span>
+              <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-500/40 flex items-center gap-1.5">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+                <span>Live Discovery Active</span>
+              </span>
             </div>
             <div class="flex items-center gap-2">
               <button id="btn-toggle-manual-code" class="text-xs font-mono text-slate-400 hover:text-slate-200">
@@ -546,6 +571,14 @@ export class MultiplayerLobbyModal {
   }
 
   close() {
+    if (this._discoveryPollTimer) {
+      clearInterval(this._discoveryPollTimer);
+      this._discoveryPollTimer = null;
+    }
+    if (this._unsubscribeRooms) {
+      this._unsubscribeRooms();
+      this._unsubscribeRooms = null;
+    }
     if (this.qrScanner) {
       this.qrScanner.stop();
       this.qrScanner = null;

@@ -32,6 +32,9 @@ export class BroadcastSignalingTransport extends BaseTransport {
     this._announcePresence();
     if (!this._heartbeatTimer) {
       this._heartbeatTimer = setInterval(() => this._announcePresence(), 3000);
+      if (this._heartbeatTimer && typeof this._heartbeatTimer.unref === 'function') {
+        this._heartbeatTimer.unref();
+      }
     }
   }
 

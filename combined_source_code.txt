@@ -1,7 +1,7 @@
 ================================================================================
  TRIARCH: CYCLIC EDGE - COMBINED SOURCE CODE BUNDLE
- Generated on: 2026-08-26T18:01:15.004Z
- Total Source Files: 56
+ Generated on: 2026-08-26T18:09:03.280Z
+ Total Source Files: 58
 ================================================================================
 
 
@@ -3128,6 +3128,253 @@ export function getNgscAuthenticator(natsWsModule) {
 
 
 /* =============================================================================
+ * FILE: src/network/discovery-bus.js
+ * ============================================================================= */
+
+/**
+ * TRIARCH: Cyclic Edge - Global Lobby Discovery Bus
+ * Manages cross-tab and cross-device room advertising, presence query-response,
+ * and live synchronization for the multiplayer lobby.
+ */
+
+export const LOBBY_GLOBAL_CHANNEL = 'triarch-lobby-global';
+export const LOCAL_STORAGE_REGISTRY_KEY = 'triarch_public_rooms_v1';
+
+export const DISCOVERY_ACTIONS = Object.freeze({
+  LOBBY_QUERY: 'LOBBY_QUERY',
+  ROOM_ADVERTISE: 'ROOM_ADVERTISE',
+  ROOM_REMOVED: 'ROOM_REMOVED'
+});
+
+export class LobbyDiscoveryBus {
+  /**
+   * @param {Object} [options={}]
+   * @param {any} [options.nc] - Optional NATS connection instance
+   */
+  constructor(options = {}) {
+    this.nc = options.nc || null;
+    this.listeners = new Set();
+    this._advertiseTimers = new Map(); // roomCode -> setInterval timer
+    this._activeDescriptors = new Map(); // roomCode -> descriptor
+
+    this.bc = null;
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        this.bc = new BroadcastChannel(LOBBY_GLOBAL_CHANNEL);
+        this.bc.onmessage = (event) => this._handleMessage(event.data);
+      } catch (e) {
+        this.bc = null;
+      }
+    }
+
+    // Storage event listener for cross-tab synchronization fallback
+    if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
+      this._storageListener = (e) => {
+        if (e.key === LOCAL_STORAGE_REGISTRY_KEY && e.newValue) {
+          try {
+            const parsed = JSON.parse(e.newValue);
+            for (const cb of this.listeners) {
+              cb(DISCOVERY_ACTIONS.ROOM_ADVERTISE, parsed);
+            }
+          } catch (err) {}
+        }
+      };
+      window.addEventListener('storage', this._storageListener);
+    }
+  }
+
+  _post(data) {
+    if (this.bc) {
+      try {
+        this.bc.postMessage(data);
+      } catch (err) {
+        console.warn('[DiscoveryBus] BC post error:', err);
+      }
+    }
+
+    if (this.nc && typeof this.nc.publish === 'function' && typeof this.nc.stringCodec === 'function') {
+      try {
+        const sc = this.nc.stringCodec();
+        this.nc.publish('triarch.lobby.global', sc.encode(JSON.stringify(data)));
+      } catch (err) {}
+    }
+  }
+
+  _handleMessage(data) {
+    if (!data || typeof data !== 'object' || !data.type) return;
+
+    // 1. Inbound query: If we are currently hosting/advertising rooms, immediately reply with ROOM_ADVERTISE
+    if (data.type === DISCOVERY_ACTIONS.LOBBY_QUERY) {
+      for (const descriptor of this._activeDescriptors.values()) {
+        this._post({
+          type: DISCOVERY_ACTIONS.ROOM_ADVERTISE,
+          descriptor,
+          t: Date.now()
+        });
+      }
+      return;
+    }
+
+    // 2. Inbound advertisement
+    if (data.type === DISCOVERY_ACTIONS.ROOM_ADVERTISE && data.descriptor) {
+      this._saveToLocalStorage(data.descriptor);
+      for (const cb of this.listeners) {
+        cb(DISCOVERY_ACTIONS.ROOM_ADVERTISE, data.descriptor);
+      }
+      return;
+    }
+
+    // 3. Inbound room removed
+    if (data.type === DISCOVERY_ACTIONS.ROOM_REMOVED && data.roomCode) {
+      this._removeFromLocalStorage(data.roomCode);
+      for (const cb of this.listeners) {
+        cb(DISCOVERY_ACTIONS.ROOM_REMOVED, data.roomCode);
+      }
+      return;
+    }
+  }
+
+  /**
+   * Dispatches a LOBBY_QUERY to solicit instant advertisements from all active hosts.
+   */
+  queryLobby() {
+    this._post({
+      type: DISCOVERY_ACTIONS.LOBBY_QUERY,
+      t: Date.now()
+    });
+  }
+
+  /**
+   * Starts periodic and on-demand advertisement for a hosted waiting room.
+   * @param {Object} descriptor - RoomDescriptor
+   */
+  startAdvertising(descriptor) {
+    if (!descriptor || !descriptor.roomCode) return;
+    const code = descriptor.roomCode.toUpperCase();
+
+    this._activeDescriptors.set(code, descriptor);
+    this._saveToLocalStorage(descriptor);
+
+    // Immediate announcement
+    this._post({
+      type: DISCOVERY_ACTIONS.ROOM_ADVERTISE,
+      descriptor,
+      t: Date.now()
+    });
+
+    // 3-second heartbeat broadcast
+    if (this._advertiseTimers.has(code)) {
+      clearInterval(this._advertiseTimers.get(code));
+    }
+
+    const timer = setInterval(() => {
+      const live = this._activeDescriptors.get(code);
+      if (live) {
+        this._post({
+          type: DISCOVERY_ACTIONS.ROOM_ADVERTISE,
+          descriptor: live,
+          t: Date.now()
+        });
+      }
+    }, 3000);
+
+    if (timer && typeof timer.unref === 'function') {
+      timer.unref();
+    }
+
+    this._advertiseTimers.set(code, timer);
+  }
+
+  /**
+   * Updates the in-memory descriptor being advertised.
+   * @param {string} roomCode
+   * @param {Object} updatedDescriptor
+   */
+  updateDescriptor(roomCode, updatedDescriptor) {
+    const code = roomCode.toUpperCase();
+    if (this._activeDescriptors.has(code)) {
+      this._activeDescriptors.set(code, updatedDescriptor);
+      this._saveToLocalStorage(updatedDescriptor);
+      this._post({
+        type: DISCOVERY_ACTIONS.ROOM_ADVERTISE,
+        descriptor: updatedDescriptor,
+        t: Date.now()
+      });
+    }
+  }
+
+  /**
+   * Stops advertising a room and notifies peers of removal.
+   * @param {string} roomCode
+   */
+  stopAdvertising(roomCode) {
+    const code = roomCode.toUpperCase();
+
+    if (this._advertiseTimers.has(code)) {
+      clearInterval(this._advertiseTimers.get(code));
+      this._advertiseTimers.delete(code);
+    }
+
+    this._activeDescriptors.delete(code);
+    this._removeFromLocalStorage(code);
+
+    this._post({
+      type: DISCOVERY_ACTIONS.ROOM_REMOVED,
+      roomCode: code,
+      t: Date.now()
+    });
+  }
+
+  onRoomUpdate(callback) {
+    this.listeners.add(callback);
+    return () => this.listeners.delete(callback);
+  }
+
+  _saveToLocalStorage(descriptor) {
+    if (typeof localStorage === 'undefined' || !descriptor) return;
+    try {
+      const raw = localStorage.getItem(LOCAL_STORAGE_REGISTRY_KEY);
+      const map = raw ? JSON.parse(raw) : {};
+      map[descriptor.roomCode] = descriptor;
+      localStorage.setItem(LOCAL_STORAGE_REGISTRY_KEY, JSON.stringify(map));
+    } catch (e) {}
+  }
+
+  _removeFromLocalStorage(roomCode) {
+    if (typeof localStorage === 'undefined') return;
+    try {
+      const raw = localStorage.getItem(LOCAL_STORAGE_REGISTRY_KEY);
+      if (raw) {
+        const map = JSON.parse(raw);
+        delete map[roomCode];
+        localStorage.setItem(LOCAL_STORAGE_REGISTRY_KEY, JSON.stringify(map));
+      }
+    } catch (e) {}
+  }
+
+  destroy() {
+    for (const timer of this._advertiseTimers.values()) {
+      clearInterval(timer);
+    }
+    this._advertiseTimers.clear();
+    this._activeDescriptors.clear();
+    this.listeners.clear();
+
+    if (this.bc) {
+      this.bc.close();
+      this.bc = null;
+    }
+    if (typeof window !== 'undefined' && this._storageListener) {
+      window.removeEventListener('storage', this._storageListener);
+    }
+  }
+}
+
+export const globalDiscoveryBus = new LobbyDiscoveryBus();
+
+
+
+/* =============================================================================
  * FILE: src/network/index.js
  * ============================================================================= */
 
@@ -3141,6 +3388,7 @@ export * from './peer-mesh.js';
 export * from './transports/index.js';
 export * from './nats-config.js';
 export * from './kv-room-registry.js';
+export * from './discovery-bus.js';
 export * from './creds/index.js';
 
 
@@ -3156,10 +3404,12 @@ export * from './creds/index.js';
  *  - Bucket: TRIARCH_ROOMS (TTL: 3600s, History: 1, MaxValueSize: 8192)
  *  - Key: room.<ROOM_CODE>
  *  - Throttled / debounced writes (max 1 write per 2000ms)
+ *  - Real-time global discovery bus integration (BroadcastChannel & NATS)
  *  - Graceful degradation to in-memory / local fallback when JetStream is unavailable
  */
 
 import { GO_FIRST_TO_FACTION, FACTION_TO_GO_FIRST } from './protocol.js';
+import { globalDiscoveryBus, DISCOVERY_ACTIONS } from './discovery-bus.js';
 
 export const KV_BUCKET_NAME = 'TRIARCH_ROOMS';
 export const KV_ROOM_TTL_SECONDS = 3600; // 1 hour auto-expiry
@@ -3186,18 +3436,22 @@ export class KvRoomRegistry {
    * @param {Object} [options={}]
    * @param {any} [options.nc] - NATS connection instance
    * @param {any} [options.kvStore] - Direct KV store instance (for testing/mocking)
+   * @param {any} [options.discoveryBus] - Custom discovery bus instance
    */
   constructor(options = {}) {
     this.nc = options.nc || null;
     this.kv = options.kvStore || null;
+    this.bus = options.discoveryBus || globalDiscoveryBus;
     this.jc = null;
 
     this.isAvailable = false;
     this.localFallbackRooms = new Map(); // In-memory fallback map: roomKey -> RoomDescriptor
     this._debounceTimers = new Map(); // roomCode -> timeout
     this._pendingWrites = new Map(); // roomCode -> data
+    this._updateListeners = new Set();
 
     this._initCodec();
+    this._initBus();
   }
 
   _initCodec() {
@@ -3212,6 +3466,47 @@ export class KvRoomRegistry {
     };
   }
 
+  _initBus() {
+    if (this.bus && typeof this.bus.onRoomUpdate === 'function') {
+      this.bus.onRoomUpdate((action, payload) => {
+        if (action === DISCOVERY_ACTIONS.ROOM_ADVERTISE && payload && payload.roomCode) {
+          const key = KvRoomRegistry.getRoomKey(payload.roomCode);
+          this.localFallbackRooms.set(key, this.formatDescriptor(payload));
+          this._notifyUpdate();
+        } else if (action === DISCOVERY_ACTIONS.ROOM_REMOVED && payload) {
+          const key = KvRoomRegistry.getRoomKey(payload);
+          this.localFallbackRooms.delete(key);
+          this._notifyUpdate();
+        }
+      });
+    }
+  }
+
+  _notifyUpdate() {
+    for (const cb of this._updateListeners) {
+      try { cb(); } catch (e) {}
+    }
+  }
+
+  /**
+   * Subscribes to live room listing updates.
+   * @param {() => void} cb
+   * @returns {() => void} Unsubscribe function
+   */
+  onRoomsUpdate(cb) {
+    this._updateListeners.add(cb);
+    return () => this._updateListeners.delete(cb);
+  }
+
+  /**
+   * Solicits instant room announcements from all active hosts.
+   */
+  broadcastLobbyQuery() {
+    if (this.bus) {
+      this.bus.queryLobby();
+    }
+  }
+
   static getRoomKey(roomCode) {
     if (!roomCode || typeof roomCode !== 'string') return '';
     return `room.${roomCode.toUpperCase().replace(/[^A-Z0-9_-]/g, '')}`;
@@ -3224,7 +3519,10 @@ export class KvRoomRegistry {
    * @returns {Promise<boolean>} Whether JetStream KV is active
    */
   async init(nc = null) {
-    if (nc) this.nc = nc;
+    if (nc) {
+      this.nc = nc;
+      if (this.bus) this.bus.nc = this.nc;
+    }
     if (this.kv) {
       this.isAvailable = true;
       return true;
@@ -3280,7 +3578,6 @@ export class KvRoomRegistry {
   formatDescriptor(rawData) {
     const rawSeats = rawData.seats || {};
 
-    // Helper to extract seat data from either G-key or faction-key
     const getSeat = (dieKey, factionKey, defaultName) => {
       const src = rawSeats[dieKey] || rawSeats[factionKey] || {};
       const claimed = src.claimed ?? !!src.peerId ?? false;
@@ -3301,7 +3598,6 @@ export class KvRoomRegistry {
       G1: g1,
       G2: g2,
       G3: g3,
-      // Backward compatibility aliases
       ruby: g1,
       cyan: g2,
       amber: g3
@@ -3380,6 +3676,13 @@ export class KvRoomRegistry {
     }
 
     this.localFallbackRooms.set(key, descriptor);
+
+    // Start live discovery advertising
+    if (this.bus) {
+      this.bus.startAdvertising(descriptor);
+    }
+
+    this._notifyUpdate();
     return descriptor;
   }
 
@@ -3444,6 +3747,16 @@ export class KvRoomRegistry {
     }
 
     this.localFallbackRooms.set(key, descriptor);
+
+    if (this.bus) {
+      if (isFull) {
+        this.bus.stopAdvertising(code);
+      } else {
+        this.bus.updateDescriptor(code, descriptor);
+      }
+    }
+
+    this._notifyUpdate();
     return descriptor;
   }
 
@@ -3474,6 +3787,10 @@ export class KvRoomRegistry {
       }
     }, KV_WRITE_DEBOUNCE_MS);
 
+    if (timer && typeof timer.unref === 'function') {
+      timer.unref();
+    }
+
     this._debounceTimers.set(code, timer);
   }
 
@@ -3501,6 +3818,16 @@ export class KvRoomRegistry {
     }
 
     this.localFallbackRooms.set(key, descriptor);
+
+    if (this.bus) {
+      if (descriptor.isFull || descriptor.status === 'ACTIVE') {
+        this.bus.stopAdvertising(roomCode);
+      } else {
+        this.bus.updateDescriptor(roomCode, descriptor);
+      }
+    }
+
+    this._notifyUpdate();
     return descriptor;
   }
 
@@ -3578,6 +3905,26 @@ export class KvRoomRegistry {
       }
     }
 
+    // 3. Merge localStorage rooms (cross-tab fallback)
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('triarch_public_rooms_v1');
+        if (raw) {
+          const storedMap = JSON.parse(raw);
+          for (const desc of Object.values(storedMap)) {
+            if (desc && (now - desc.updatedAt) < maxAgeMs) {
+              const formatted = this.formatDescriptor(desc);
+              if (!options.onlyWaiting || (formatted.status === 'WAITING' && !formatted.isFull)) {
+                if (!roomMap.has(formatted.roomCode)) {
+                  roomMap.set(formatted.roomCode, formatted);
+                }
+              }
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
     return Array.from(roomMap.values()).sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
@@ -3605,6 +3952,12 @@ export class KvRoomRegistry {
     }
 
     this.localFallbackRooms.delete(key);
+
+    if (this.bus) {
+      this.bus.stopAdvertising(code);
+    }
+
+    this._notifyUpdate();
   }
 }
 
@@ -3963,6 +4316,9 @@ export class PeerMeshManager {
 
     // Start latency ping interval
     this._pingTimer = setInterval(() => this._measureLatency(), 4000);
+    if (this._pingTimer && typeof this._pingTimer.unref === 'function') {
+      this._pingTimer.unref();
+    }
 
     // Initial announce
     const hello = createActionEnvelope(ACTION_TYPES.PEER_HELLO, this.localSeat, {
@@ -4671,6 +5027,9 @@ export class BroadcastSignalingTransport extends BaseTransport {
     this._announcePresence();
     if (!this._heartbeatTimer) {
       this._heartbeatTimer = setInterval(() => this._announcePresence(), 3000);
+      if (this._heartbeatTimer && typeof this._heartbeatTimer.unref === 'function') {
+        this._heartbeatTimer.unref();
+      }
     }
   }
 
@@ -5115,11 +5474,17 @@ export class NatsSignalingTransport extends BaseTransport {
 
     if (!this._heartbeatTimer) {
       this._heartbeatTimer = setInterval(() => this._publishPresence(), 3000);
+      if (this._heartbeatTimer && typeof this._heartbeatTimer.unref === 'function') {
+        this._heartbeatTimer.unref();
+      }
     }
 
     if (!this._gcTimer) {
       // Check for peer timeouts every 2 seconds
       this._gcTimer = setInterval(() => this._purgeInactivePeers(), 2000);
+      if (this._gcTimer && typeof this._gcTimer.unref === 'function') {
+        this._gcTimer.unref();
+      }
     }
   }
 
@@ -6688,6 +7053,28 @@ export class MultiplayerLobbyModal {
     if (this.modal) this.close();
     if (this.waitingModal) this.closeWaitingModal();
 
+    // Subscribe to live room updates from global discovery bus & JetStream KV
+    if (this._unsubscribeRooms) {
+      this._unsubscribeRooms();
+      this._unsubscribeRooms = null;
+    }
+    this._unsubscribeRooms = globalKvRegistry.onRoomsUpdate(() => {
+      if (this.isOpen()) {
+        this.loadAndRenderRooms();
+      }
+    });
+
+    // Start background lobby query polling (solicits active hosts across tabs/devices)
+    if (this._discoveryPollTimer) {
+      clearInterval(this._discoveryPollTimer);
+      this._discoveryPollTimer = null;
+    }
+    this._discoveryPollTimer = setInterval(() => {
+      if (this.isOpen()) {
+        globalKvRegistry.broadcastLobbyQuery();
+      }
+    }, 2500);
+
     const overlay = document.createElement('div');
     overlay.id = 'lobby-modal-overlay';
     overlay.className = 'fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/85 backdrop-blur-xl animate-fade-in overflow-y-auto';
@@ -6776,7 +7163,10 @@ export class MultiplayerLobbyModal {
             <div class="flex items-center gap-2">
               <span class="text-sm">🌐</span>
               <h3 class="text-xs font-bold uppercase tracking-wider text-slate-200 font-mono">Available Public Games</h3>
-              <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-500/30">1-Click Die Join</span>
+              <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-emerald-950/80 text-emerald-300 border border-emerald-500/40 flex items-center gap-1.5">
+                <span class="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
+                <span>Live Discovery Active</span>
+              </span>
             </div>
             <div class="flex items-center gap-2">
               <button id="btn-toggle-manual-code" class="text-xs font-mono text-slate-400 hover:text-slate-200">
@@ -7168,6 +7558,14 @@ export class MultiplayerLobbyModal {
   }
 
   close() {
+    if (this._discoveryPollTimer) {
+      clearInterval(this._discoveryPollTimer);
+      this._discoveryPollTimer = null;
+    }
+    if (this._unsubscribeRooms) {
+      this._unsubscribeRooms();
+      this._unsubscribeRooms = null;
+    }
     if (this.qrScanner) {
       this.qrScanner.stop();
       this.qrScanner = null;
@@ -8693,7 +9091,7 @@ export function createDiceVisual(container, die) {
  * Robust offline caching, WebRTC P2P mesh support, NATS WebSocket adapter, and instant upgrade activation.
  */
 
-const CACHE_NAME = 'triarch-cache-v1.9.0';
+const CACHE_NAME = 'triarch-cache-v1.10.0';
 
 const PRECACHE_ASSETS = [
   './',
@@ -8716,6 +9114,7 @@ const PRECACHE_ASSETS = [
   './src/network/transports/index.js',
   './src/network/nats-config.js',
   './src/network/kv-room-registry.js',
+  './src/network/discovery-bus.js',
   './src/network/creds/ngs-creds.js',
   './src/network/creds/index.js',
   './src/network/index.js',
@@ -9060,6 +9459,154 @@ describe('Dice Presets Registry', () => {
       assert.ok(preset.name.length > 0);
       assert.ok(preset.dice.length >= 3);
     }
+  });
+});
+
+
+
+/* =============================================================================
+ * FILE: test/discovery.test.js
+ * ============================================================================= */
+
+/**
+ * Automated Verification Suite - Global Lobby Discovery & Real-Time Synchronization (100% In-Memory)
+ * STRICT QUOTA GUARD: Zero outbound network requests during test execution.
+ */
+
+import { test, describe } from 'node:test';
+import assert from 'node:assert/strict';
+import { KvRoomRegistry } from '../src/network/kv-room-registry.js';
+import { LobbyDiscoveryBus, DISCOVERY_ACTIONS } from '../src/network/discovery-bus.js';
+
+/**
+ * Creates an in-memory mock broadcast bus that routes messages across simulating nodes.
+ */
+function createMockDiscoveryNetwork() {
+  const nodes = new Set();
+
+  return {
+    createNodeBus() {
+      const bus = new LobbyDiscoveryBus();
+      nodes.add(bus);
+
+      // Intercept bus._post to simulate local multi-tab BroadcastChannel
+      bus._post = (data) => {
+        for (const otherBus of nodes) {
+          if (otherBus !== bus) {
+            // Deliver asynchronously
+            setImmediate(() => {
+              otherBus._handleMessage(data);
+            });
+          }
+        }
+      };
+
+      return bus;
+    }
+  };
+}
+
+describe('Global Lobby Discovery Bus & Cross-Tab Room Sync', () => {
+  test('Multi-Tab Discovery: Node B discovers Node A room via LOBBY_QUERY handshake', async () => {
+    const net = createMockDiscoveryNetwork();
+
+    // Node A (Host)
+    const busA = net.createNodeBus();
+    const registryA = new KvRoomRegistry({ discoveryBus: busA });
+
+    // Node B (Joining Player)
+    const busB = net.createNodeBus();
+    const registryB = new KvRoomRegistry({ discoveryBus: busB });
+
+    // 1. Node A creates room TR-1A with Go-First die G1
+    const roomA = await registryA.createRoom('TR-1A', 'peer_alice', {
+      gameName: 'Grand Arena',
+      hostDie: 'G1',
+      hostName: 'Alice'
+    });
+    assert.equal(roomA.roomCode, 'TR-1A');
+
+    // 2. Node B opens lobby and dispatches LOBBY_QUERY
+    let nodeBUpdated = false;
+    registryB.onRoomsUpdate(() => {
+      nodeBUpdated = true;
+    });
+
+    registryB.broadcastLobbyQuery();
+
+    // Wait for async message delivery loop
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    assert.equal(nodeBUpdated, true, 'Node B must receive room update event upon query response');
+
+    // 3. Node B lists active rooms
+    const roomsForB = await registryB.listActiveRooms({ onlyWaiting: true });
+    assert.equal(roomsForB.length, 1);
+    assert.equal(roomsForB[0].roomCode, 'TR-1A');
+    assert.equal(roomsForB[0].gameName, 'Grand Arena');
+    assert.equal(roomsForB[0].seats.G1.claimed, true);
+    assert.equal(roomsForB[0].seats.G1.name, 'Alice');
+    assert.equal(roomsForB[0].seats.G2.claimed, false, 'G2 must be open for Node B');
+    assert.equal(roomsForB[0].seats.G3.claimed, false, 'G3 must be open for Node B');
+
+    // Teardown
+    busA.destroy();
+    busB.destroy();
+  });
+
+  test('Room Deletion: When Node A room is deleted/cancelled, Node B removes it from listing', async () => {
+    const net = createMockDiscoveryNetwork();
+
+    const busA = net.createNodeBus();
+    const registryA = new KvRoomRegistry({ discoveryBus: busA });
+
+    const busB = net.createNodeBus();
+    const registryB = new KvRoomRegistry({ discoveryBus: busB });
+
+    // 1. Create room
+    await registryA.createRoom('TR-CANCEL', 'peer_host', { hostDie: 'G1' });
+    registryB.broadcastLobbyQuery();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    let activeRoomsB = await registryB.listActiveRooms({ onlyWaiting: true });
+    assert.ok(activeRoomsB.some(r => r.roomCode === 'TR-CANCEL'));
+
+    // 2. Host closes/deletes room
+    await registryA.deleteRoom('TR-CANCEL');
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    activeRoomsB = await registryB.listActiveRooms({ onlyWaiting: true });
+    assert.equal(activeRoomsB.some(r => r.roomCode === 'TR-CANCEL'), false, 'Deleted room must be purged from Node B');
+
+    busA.destroy();
+    busB.destroy();
+  });
+
+  test('Auto-Start Transition: Room automatically purges from waiting list when full', async () => {
+    const net = createMockDiscoveryNetwork();
+
+    const busA = net.createNodeBus();
+    const registryA = new KvRoomRegistry({ discoveryBus: busA });
+
+    const busB = net.createNodeBus();
+    const registryB = new KvRoomRegistry({ discoveryBus: busB });
+
+    // 1. Create room with G1
+    await registryA.createRoom('TR-FULL-AUTO', 'peer_a', { hostDie: 'G1' });
+    registryB.broadcastLobbyQuery();
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    // 2. Player 2 and Player 3 join
+    await registryA.claimSeat('TR-FULL-AUTO', 'G2', 'peer_b', 'Bob');
+    await registryA.claimSeat('TR-FULL-AUTO', 'G3', 'peer_c', 'Charlie');
+
+    await new Promise((resolve) => setTimeout(resolve, 50));
+
+    const waitingB = await registryB.listActiveRooms({ onlyWaiting: true });
+    assert.equal(waitingB.some(r => r.roomCode === 'TR-FULL-AUTO'), false, 'Full ACTIVE room must not appear in waiting list');
+
+    busA.destroy();
+    busB.destroy();
   });
 });
 
@@ -10512,9 +11059,11 @@ describe('Graph-Theoretic Cycle Detection', () => {
 
 {
   "name": "TRIARCH: Cyclic Edge",
-  "version": "1.9.0",
-  "buildTime": "2026-08-26T12:00:00Z",
+  "version": "1.10.0",
+  "buildTime": "2026-08-26T12:30:00Z",
   "features": [
+    "Global Lobby Discovery Bus (LOBBY_QUERY <-> ROOM_ADVERTISE Handshake)",
+    "Real-Time Cross-Tab & Multi-Device Available Games Auto-Discovery",
     "Streamlined Die-Driven Matchmaking (Single Dashboard View)",
     "Go-First Fair Initiative Dice Selection (G1, G2, G3 Partition of 1..18)",
     "1-Click Interactive Go-First Die Claim & Room Join",

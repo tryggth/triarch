@@ -1,8 +1,10 @@
 {
   "name": "TRIARCH: Cyclic Edge",
-  "version": "1.9.0",
-  "buildTime": "2026-08-26T12:00:00Z",
+  "version": "1.10.0",
+  "buildTime": "2026-08-26T12:30:00Z",
   "features": [
+    "Global Lobby Discovery Bus (LOBBY_QUERY <-> ROOM_ADVERTISE Handshake)",
+    "Real-Time Cross-Tab & Multi-Device Available Games Auto-Discovery",
     "Streamlined Die-Driven Matchmaking (Single Dashboard View)",
     "Go-First Fair Initiative Dice Selection (G1, G2, G3 Partition of 1..18)",
     "1-Click Interactive Go-First Die Claim & Room Join",

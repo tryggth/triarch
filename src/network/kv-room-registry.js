@@ -5,10 +5,12 @@
  *  - Bucket: TRIARCH_ROOMS (TTL: 3600s, History: 1, MaxValueSize: 8192)
  *  - Key: room.<ROOM_CODE>
  *  - Throttled / debounced writes (max 1 write per 2000ms)
+ *  - Real-time global discovery bus integration (BroadcastChannel & NATS)
  *  - Graceful degradation to in-memory / local fallback when JetStream is unavailable
  */
 
 import { GO_FIRST_TO_FACTION, FACTION_TO_GO_FIRST } from './protocol.js';
+import { globalDiscoveryBus, DISCOVERY_ACTIONS } from './discovery-bus.js';
 
 export const KV_BUCKET_NAME = 'TRIARCH_ROOMS';
 export const KV_ROOM_TTL_SECONDS = 3600; // 1 hour auto-expiry
@@ -35,18 +37,22 @@ export class KvRoomRegistry {
    * @param {Object} [options={}]
    * @param {any} [options.nc] - NATS connection instance
    * @param {any} [options.kvStore] - Direct KV store instance (for testing/mocking)
+   * @param {any} [options.discoveryBus] - Custom discovery bus instance
    */
   constructor(options = {}) {
     this.nc = options.nc || null;
     this.kv = options.kvStore || null;
+    this.bus = options.discoveryBus || globalDiscoveryBus;
     this.jc = null;
 
     this.isAvailable = false;
     this.localFallbackRooms = new Map(); // In-memory fallback map: roomKey -> RoomDescriptor
     this._debounceTimers = new Map(); // roomCode -> timeout
     this._pendingWrites = new Map(); // roomCode -> data
+    this._updateListeners = new Set();
 
     this._initCodec();
+    this._initBus();
   }
 
   _initCodec() {
@@ -61,6 +67,47 @@ export class KvRoomRegistry {
     };
   }
 
+  _initBus() {
+    if (this.bus && typeof this.bus.onRoomUpdate === 'function') {
+      this.bus.onRoomUpdate((action, payload) => {
+        if (action === DISCOVERY_ACTIONS.ROOM_ADVERTISE && payload && payload.roomCode) {
+          const key = KvRoomRegistry.getRoomKey(payload.roomCode);
+          this.localFallbackRooms.set(key, this.formatDescriptor(payload));
+          this._notifyUpdate();
+        } else if (action === DISCOVERY_ACTIONS.ROOM_REMOVED && payload) {
+          const key = KvRoomRegistry.getRoomKey(payload);
+          this.localFallbackRooms.delete(key);
+          this._notifyUpdate();
+        }
+      });
+    }
+  }
+
+  _notifyUpdate() {
+    for (const cb of this._updateListeners) {
+      try { cb(); } catch (e) {}
+    }
+  }
+
+  /**
+   * Subscribes to live room listing updates.
+   * @param {() => void} cb
+   * @returns {() => void} Unsubscribe function
+   */
+  onRoomsUpdate(cb) {
+    this._updateListeners.add(cb);
+    return () => this._updateListeners.delete(cb);
+  }
+
+  /**
+   * Solicits instant room announcements from all active hosts.
+   */
+  broadcastLobbyQuery() {
+    if (this.bus) {
+      this.bus.queryLobby();
+    }
+  }
+
   static getRoomKey(roomCode) {
     if (!roomCode || typeof roomCode !== 'string') return '';
     return `room.${roomCode.toUpperCase().replace(/[^A-Z0-9_-]/g, '')}`;
@@ -73,7 +120,10 @@ export class KvRoomRegistry {
    * @returns {Promise<boolean>} Whether JetStream KV is active
    */
   async init(nc = null) {
-    if (nc) this.nc = nc;
+    if (nc) {
+      this.nc = nc;
+      if (this.bus) this.bus.nc = this.nc;
+    }
     if (this.kv) {
       this.isAvailable = true;
       return true;
@@ -129,7 +179,6 @@ export class KvRoomRegistry {
   formatDescriptor(rawData) {
     const rawSeats = rawData.seats || {};
 
-    // Helper to extract seat data from either G-key or faction-key
     const getSeat = (dieKey, factionKey, defaultName) => {
       const src = rawSeats[dieKey] || rawSeats[factionKey] || {};
       const claimed = src.claimed ?? !!src.peerId ?? false;
@@ -150,7 +199,6 @@ export class KvRoomRegistry {
       G1: g1,
       G2: g2,
       G3: g3,
-      // Backward compatibility aliases
       ruby: g1,
       cyan: g2,
       amber: g3
@@ -229,6 +277,13 @@ export class KvRoomRegistry {
     }
 
     this.localFallbackRooms.set(key, descriptor);
+
+    // Start live discovery advertising
+    if (this.bus) {
+      this.bus.startAdvertising(descriptor);
+    }
+
+    this._notifyUpdate();
     return descriptor;
   }
 
@@ -293,6 +348,16 @@ export class KvRoomRegistry {
     }
 
     this.localFallbackRooms.set(key, descriptor);
+
+    if (this.bus) {
+      if (isFull) {
+        this.bus.stopAdvertising(code);
+      } else {
+        this.bus.updateDescriptor(code, descriptor);
+      }
+    }
+
+    this._notifyUpdate();
     return descriptor;
   }
 
@@ -323,6 +388,10 @@ export class KvRoomRegistry {
       }
     }, KV_WRITE_DEBOUNCE_MS);
 
+    if (timer && typeof timer.unref === 'function') {
+      timer.unref();
+    }
+
     this._debounceTimers.set(code, timer);
   }
 
@@ -350,6 +419,16 @@ export class KvRoomRegistry {
     }
 
     this.localFallbackRooms.set(key, descriptor);
+
+    if (this.bus) {
+      if (descriptor.isFull || descriptor.status === 'ACTIVE') {
+        this.bus.stopAdvertising(roomCode);
+      } else {
+        this.bus.updateDescriptor(roomCode, descriptor);
+      }
+    }
+
+    this._notifyUpdate();
     return descriptor;
   }
 
@@ -427,6 +506,26 @@ export class KvRoomRegistry {
       }
     }
 
+    // 3. Merge localStorage rooms (cross-tab fallback)
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('triarch_public_rooms_v1');
+        if (raw) {
+          const storedMap = JSON.parse(raw);
+          for (const desc of Object.values(storedMap)) {
+            if (desc && (now - desc.updatedAt) < maxAgeMs) {
+              const formatted = this.formatDescriptor(desc);
+              if (!options.onlyWaiting || (formatted.status === 'WAITING' && !formatted.isFull)) {
+                if (!roomMap.has(formatted.roomCode)) {
+                  roomMap.set(formatted.roomCode, formatted);
+                }
+              }
+            }
+          }
+        }
+      } catch (e) {}
+    }
+
     return Array.from(roomMap.values()).sort((a, b) => b.updatedAt - a.updatedAt);
   }
 
@@ -454,6 +553,12 @@ export class KvRoomRegistry {
     }
 
     this.localFallbackRooms.delete(key);
+
+    if (this.bus) {
+      this.bus.stopAdvertising(code);
+    }
+
+    this._notifyUpdate();
   }
 }
 

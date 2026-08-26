@@ -304,11 +304,17 @@ export class NatsSignalingTransport extends BaseTransport {
 
     if (!this._heartbeatTimer) {
       this._heartbeatTimer = setInterval(() => this._publishPresence(), 3000);
+      if (this._heartbeatTimer && typeof this._heartbeatTimer.unref === 'function') {
+        this._heartbeatTimer.unref();
+      }
     }
 
     if (!this._gcTimer) {
       // Check for peer timeouts every 2 seconds
       this._gcTimer = setInterval(() => this._purgeInactivePeers(), 2000);
+      if (this._gcTimer && typeof this._gcTimer.unref === 'function') {
+        this._gcTimer.unref();
+      }
     }
   }
 
