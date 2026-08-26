@@ -3,7 +3,7 @@
  * Non-blocking, glassmorphic toast notification queue for PWA updates, combat events, and warnings.
  */
 
-export const APP_VERSION = '1.11.0';
+export const APP_VERSION = '1.12.0';
 
 class ToastManager {
   constructor(version = APP_VERSION) {

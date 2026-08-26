@@ -205,27 +205,76 @@ describe('Die-Driven Matchmaking & Room Registry', () => {
     assert.equal(tab4Discovered.length, 0, 'Full/active rooms removed from available waiting list');
   });
 
-  test('Stale Room Pruning: Rooms with lastSeen older than 6 seconds are automatically pruned', async () => {
+  test('Room Discoverability Longevity: Created room remains discoverable for at least 5 minutes while waiting', async () => {
+    const mockKv = createMockKvStore();
+    const registry = new KvRoomRegistry({ kvStore: mockKv });
+
+    // Host creates room with timestamp 5 minutes ago (300,000 ms)
+    const fiveMinutesAgo = Date.now() - (5 * 60 * 1000);
+    const room = await registry.createRoom('TR-5MIN', 'peer_host', {
+      gameName: '5-Minute Waiting Room',
+      hostDie: 'G1',
+      hostName: 'Patient Host'
+    });
+    room.lastSeen = fiveMinutesAgo;
+    registry.localFallbackRooms.set('TR-5MIN', room);
+
+    // Another player opens lobby now
+    const waiting = await registry.listActiveRooms({ onlyWaiting: true });
+    const codes = waiting.map(r => r.roomCode);
+
+    assert.ok(codes.includes('TR-5MIN'), 'Room waiting for 5 minutes must remain discoverable');
+  });
+
+  test('Multi-Room Discovery: 2nd room created by Tab 4 is discoverable by Tab 5 alongside existing open rooms', async () => {
+    const mockKv = createMockKvStore();
+    const registry = new KvRoomRegistry({ kvStore: mockKv });
+
+    // Room 1 created by Tab 1 (Host A)
+    await registry.createRoom('TR-ROOM-A', 'peer_tab1', {
+      gameName: 'Arena Alpha',
+      hostDie: 'G1',
+      hostName: 'Alice'
+    });
+
+    // Room 2 created by Tab 4 (Host B)
+    await registry.createRoom('TR-ROOM-B', 'peer_tab4', {
+      gameName: 'Arena Beta',
+      hostDie: 'G3',
+      hostName: 'Bob'
+    });
+
+    // Tab 5 opens lobby to browse available games
+    const available = await registry.listActiveRooms({ onlyWaiting: true });
+    const codes = available.map(r => r.roomCode);
+
+    assert.equal(available.length, 2, 'Tab 5 must see both active waiting rooms');
+    assert.ok(codes.includes('TR-ROOM-A'));
+    assert.ok(codes.includes('TR-ROOM-B'));
+  });
+
+  test('Stale Room Pruning: Rooms with lastSeen older than 15 minutes are automatically pruned', async () => {
     const mockKv = createMockKvStore();
     const registry = new KvRoomRegistry({ kvStore: mockKv });
 
     // Active room (fresh lastSeen)
-    const freshRoom = await registry.createRoom('TR-FRESH', 'peer_fresh', { hostDie: 'G1' });
+    await registry.createRoom('TR-FRESH', 'peer_fresh', { hostDie: 'G1' });
 
-    // Stale room (lastSeen 7 seconds ago)
+    // Stale room (lastSeen 16 minutes ago)
+    const sixteenMinutesAgo = Date.now() - (16 * 60 * 1000);
     const staleDesc = registry.formatDescriptor({
-      roomCode: 'TR-STALE',
+      roomCode: 'TR-EXPIRED',
       hostPeerId: 'peer_stale',
       status: 'WAITING',
       seats: { G1: { peerId: 'peer_stale', claimed: true } },
-      lastSeen: Date.now() - 7000
+      lastSeen: sixteenMinutesAgo
     });
-    registry.localFallbackRooms.set('TR-STALE', staleDesc);
+    registry.localFallbackRooms.set('TR-EXPIRED', staleDesc);
 
-    const activeRooms = await registry.listActiveRooms({ onlyWaiting: true, maxStaleMs: 6000 });
+    const activeRooms = await registry.listActiveRooms({ onlyWaiting: true });
     const roomCodes = activeRooms.map(r => r.roomCode);
 
     assert.ok(roomCodes.includes('TR-FRESH'), 'Fresh room must be present');
-    assert.ok(!roomCodes.includes('TR-STALE'), 'Stale room older than 6s must be pruned');
+    assert.ok(!roomCodes.includes('TR-EXPIRED'), 'Stale room older than 15 minutes must be pruned');
   });
 });

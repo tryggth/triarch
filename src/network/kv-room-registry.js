@@ -9,7 +9,7 @@ import { globalDiscoveryBus, DISCOVERY_ACTIONS } from './discovery-bus.js';
 
 export const KV_BUCKET_NAME = 'TRIARCH_ROOMS';
 export const KV_ROOM_TTL_SECONDS = 3600; // 1 hour auto-expiry in NATS KV
-export const ROOM_STALE_TIMEOUT_MS = 6000; // 6 seconds stale pruning in lobby
+export const ROOM_STALE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes stale pruning in lobby
 
 export class KvRoomRegistry {
   /**

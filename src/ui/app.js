@@ -335,6 +335,13 @@ class TriarchApp {
         if (res.ok) {
           const data = await res.json();
           if (data && data.version) {
+            const versionStr = `v${data.version}`;
+            const headerBadge = document.getElementById('header-version-badge');
+            const footerDisplay = document.getElementById('app-version-display');
+            if (headerBadge) headerBadge.textContent = versionStr;
+            if (footerDisplay) footerDisplay.textContent = versionStr;
+            toast.setVersion(data.version);
+
             if (!this.currentBuildVersion) {
               this.currentBuildVersion = data.version;
             } else if (this.currentBuildVersion !== data.version) {
