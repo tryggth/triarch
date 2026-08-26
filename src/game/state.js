@@ -27,6 +27,7 @@ export class GameStateManager {
     this.currentTurnIndex = 0;
     this.winner = null;
     this.roundHistory = [];
+    this.concealedPlayers = new Set(); // Players whose stances are hidden until clash
 
     // Initialize 3 players with assigned Go-First Fair Initiative Dice
     this.players = {
@@ -289,6 +290,11 @@ export class GameStateManager {
     player.staked = spent;
     player.marketModifiers = Array.isArray(options.modifiers) ? [...options.modifiers] : [];
 
+    // Track concealed stance — hidden from other players until clash
+    if (player.marketModifiers.includes('CONCEAL')) {
+      this.concealedPlayers.add(playerId);
+    }
+
     if (options.dieId) {
       const chosenDie = TRIARCH_STANDARD.find(d => d.id === options.dieId);
       if (chosenDie) {
@@ -353,6 +359,7 @@ export class GameStateManager {
    */
   executeClash(rng = Math.random) {
     this.phase = GAME_PHASES.CLASH;
+    this.concealedPlayers.clear(); // Reveal all stances when clash begins
 
     // 1. Calculate unspent round pot
     this.roundPot = this.players.ruby.energy + this.players.cyan.energy + this.players.amber.energy;
@@ -512,6 +519,7 @@ export class GameStateManager {
     this.currentTurnIndex = 0;
     this.roundPot = 0;
     this.lastClashResult = null;
+    this.concealedPlayers.clear();
     for (const p of Object.values(this.players)) {
       p.isReady = false;
       p.marketModifiers = [];

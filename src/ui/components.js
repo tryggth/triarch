@@ -140,8 +140,8 @@ export function renderPlayerHUDHTML(player, networkMeta = {}) {
       <div class="mt-3 pt-3 border-t border-slate-800/60 flex items-center justify-between text-xs">
         <div class="flex items-center gap-1.5">
           <span class="text-[11px] text-slate-400">Energy:</span>
-          <span class="font-mono font-bold text-amber-300 text-xs">⚡ ${player.energy ?? 0}</span>
-          ${player.staked > 0 ? `<span class="text-[10px] font-mono text-slate-400">(-${player.staked})</span>` : ''}
+          <span class="font-mono font-bold text-amber-300 text-xs">⚡ ${isConcealed ? '??' : (player.energy ?? 0)}</span>
+          ${!isConcealed && player.staked > 0 ? `<span class="text-[10px] font-mono text-slate-400">(-${player.staked})</span>` : ''}
         </div>
         <div class="flex items-center gap-1.5">
           <span class="text-[11px] text-slate-400">Shards:</span>
@@ -153,17 +153,24 @@ export function renderPlayerHUDHTML(player, networkMeta = {}) {
         </div>
       </div>
 
-      ${player.marketModifiers && player.marketModifiers.length > 0 ? `
+      ${isConcealed && player.marketModifiers && player.marketModifiers.length > 0 ? `
+        <div class="mt-2 flex flex-wrap gap-1">
+          <span class="text-[10px] px-2 py-0.5 rounded-md bg-purple-900/60 border border-purple-500/40 text-purple-200 font-mono">
+            🔒 Stance Concealed
+          </span>
+        </div>
+      ` : ''}
+      ${!isConcealed && player.marketModifiers && player.marketModifiers.length > 0 ? `
         <div class="mt-2 flex flex-wrap gap-1">
           ${player.marketModifiers.map(m => `
             <span class="text-[10px] px-2 py-0.5 rounded-md bg-indigo-900/60 border border-indigo-500/40 text-indigo-200 font-mono">
-              ${m === 'MELEE' ? '⚔️ Melee (+2)' : m === 'SHIFTER' ? '⚡ Shifter (+1)' : m === 'DUEL' ? '🛡️ Shield' : m}
+              ${m === 'MELEE' ? '⚔️ Melee (+2)' : m === 'SHIFTER' ? '⚡ Shifter (+1)' : m === 'DUEL' ? '🛡️ Shield' : m === 'CONCEAL' ? '🔒 Conceal' : m}
             </span>
           `).join('')}
         </div>
       ` : ''}
 
-      ${player.activeShard ? `
+      ${!isConcealed && player.activeShard ? `
         <div class="mt-2 text-[11px] px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 font-mono flex items-center gap-1">
           ⚡ Shard Active: ${player.activeShard}
         </div>

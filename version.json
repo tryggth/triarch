@@ -1,7 +1,7 @@
 {
   "name": "TRIARCH: Cyclic Edge",
-  "version": "1.13.2",
-  "buildTime": "2026-08-26T22:17:53.070Z",
+  "version": "1.13.3",
+  "buildTime": "2026-08-26T22:29:37.052Z",
   "features": [
     "Strict Two-Phase Round Loop (Phase 1: Go-First Zero-Tie Initiative -> Phase 2: Tactical Turn & Energy Pot Clash)",
     "Dynamic Arena Pot Display & Accumulation of Unspent Energy",

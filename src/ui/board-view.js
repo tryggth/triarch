@@ -90,8 +90,10 @@ export class BoardStageManager {
    * @param {string} phase
    * @param {Object} players
    * @param {number} pot
+   * @param {Set<string>} [concealedSeats=new Set()]
+   * @param {string|null} [localSeat=null]
    */
-  updateForPhase(phase, players = {}, pot = 0) {
+  updateForPhase(phase, players = {}, pot = 0, concealedSeats = new Set(), localSeat = null) {
     const phaseTag = this.container.querySelector('#stage-phase-tag');
     const potBadge = this.container.querySelector('#stage-pot-badge');
     const potAmount = this.container.querySelector('#stage-pot-amount');
@@ -111,15 +113,32 @@ export class BoardStageManager {
         if (potAmount) potAmount.textContent = pot;
       }
 
-      // Set to selected Combat dice
-      if (players.ruby?.currentDie) {
-        this.diceCubes.ruby.updateDice(players.ruby.currentDie.faces, players.ruby.currentDie.name, '#fb7185', 'from-rose-500 to-rose-700');
-      }
-      if (players.cyan?.currentDie) {
-        this.diceCubes.cyan.updateDice(players.cyan.currentDie.faces, players.cyan.currentDie.name, '#22d3ee', 'from-cyan-500 to-cyan-700');
-      }
-      if (players.amber?.currentDie) {
-        this.diceCubes.amber.updateDice(players.amber.currentDie.faces, players.amber.currentDie.name, '#facc15', 'from-amber-400 to-amber-600');
+      const seats = [
+        { key: 'ruby', accent: '#fb7185', grad: 'from-rose-500 to-rose-700' },
+        { key: 'cyan', accent: '#22d3ee', grad: 'from-cyan-500 to-cyan-700' },
+        { key: 'amber', accent: '#facc15', grad: 'from-amber-400 to-amber-600' }
+      ];
+
+      for (const { key, accent, grad } of seats) {
+        const p = players[key];
+        if (!p?.currentDie) continue;
+
+        const isConcealed = phase === 'TACTICAL_TURN' && concealedSeats.has(key) && localSeat !== key;
+        if (isConcealed) {
+          this.diceCubes[key].updateDice(
+            ['?', '?', '?', '?', '?', '?'],
+            '🔒 Secret Stance',
+            '#a855f7',
+            'from-purple-900 to-slate-900'
+          );
+        } else {
+          this.diceCubes[key].updateDice(
+            p.currentDie.faces,
+            p.currentDie.name,
+            accent,
+            grad
+          );
+        }
       }
     }
   }

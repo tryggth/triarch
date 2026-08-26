@@ -762,7 +762,13 @@ class TriarchApp {
 
     // Update 3D Stage for active phase
     if (this.boardStage) {
-      this.boardStage.updateForPhase(this.game.phase, this.game.players, this.game.roundPot);
+      this.boardStage.updateForPhase(
+        this.game.phase,
+        this.game.players,
+        this.game.roundPot,
+        this.game.concealedPlayers,
+        this.mesh.getLocalFaction()
+      );
     }
 
     const hudRuby = document.getElementById('hud-ruby');
@@ -771,7 +777,9 @@ class TriarchApp {
 
     const getMeta = (seat) => {
       const isLocal = this.mesh.getLocalFaction() === seat;
-      const isConcealed = this.net.peerCommitments.has(seat) && !this.net.peerReveals.has(seat) && !isLocal;
+      const hasNetworkConcealment = this.net.peerCommitments.has(seat) && !this.net.peerReveals.has(seat);
+      const hasLocalConcealment = this.game.concealedPlayers.has(seat);
+      const isConcealed = (hasNetworkConcealment || hasLocalConcealment) && !isLocal;
       const peerId = this.mesh.seats[seat]?.peerId;
       const latency = peerId ? this.mesh.latencies.get(peerId) : null;
       const poleIdx = this.game.initiativeOrder ? this.game.initiativeOrder.indexOf(seat) : -1;

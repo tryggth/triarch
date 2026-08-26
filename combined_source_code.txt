@@ -1,6 +1,6 @@
 ================================================================================
  TRIARCH: CYCLIC EDGE - COMBINED SOURCE CODE BUNDLE
- Generated on: 2026-08-26T22:17:53.227Z
+ Generated on: 2026-08-26T22:29:37.193Z
  Total Source Files: 58
 ================================================================================
 
@@ -875,7 +875,7 @@ export class QRScannerHelper {
 
 {
   "name": "triarch-cyclic-edge",
-  "version": "1.13.2",
+  "version": "1.13.3",
   "description": "A strategic 3-player non-transitive tabletop game PWA powered by a verified mathematical dice engine",
   "type": "module",
   "main": "src/math/index.js",
@@ -2123,6 +2123,7 @@ export class GameStateManager {
     this.currentTurnIndex = 0;
     this.winner = null;
     this.roundHistory = [];
+    this.concealedPlayers = new Set(); // Players whose stances are hidden until clash
 
     // Initialize 3 players with assigned Go-First Fair Initiative Dice
     this.players = {
@@ -2385,6 +2386,11 @@ export class GameStateManager {
     player.staked = spent;
     player.marketModifiers = Array.isArray(options.modifiers) ? [...options.modifiers] : [];
 
+    // Track concealed stance — hidden from other players until clash
+    if (player.marketModifiers.includes('CONCEAL')) {
+      this.concealedPlayers.add(playerId);
+    }
+
     if (options.dieId) {
       const chosenDie = TRIARCH_STANDARD.find(d => d.id === options.dieId);
       if (chosenDie) {
@@ -2449,6 +2455,7 @@ export class GameStateManager {
    */
   executeClash(rng = Math.random) {
     this.phase = GAME_PHASES.CLASH;
+    this.concealedPlayers.clear(); // Reveal all stances when clash begins
 
     // 1. Calculate unspent round pot
     this.roundPot = this.players.ruby.energy + this.players.cyan.energy + this.players.amber.energy;
@@ -2608,6 +2615,7 @@ export class GameStateManager {
     this.currentTurnIndex = 0;
     this.roundPot = 0;
     this.lastClashResult = null;
+    this.concealedPlayers.clear();
     for (const p of Object.values(this.players)) {
       p.isReady = false;
       p.marketModifiers = [];
@@ -6616,7 +6624,13 @@ class TriarchApp {
 
     // Update 3D Stage for active phase
     if (this.boardStage) {
-      this.boardStage.updateForPhase(this.game.phase, this.game.players, this.game.roundPot);
+      this.boardStage.updateForPhase(
+        this.game.phase,
+        this.game.players,
+        this.game.roundPot,
+        this.game.concealedPlayers,
+        this.mesh.getLocalFaction()
+      );
     }
 
     const hudRuby = document.getElementById('hud-ruby');
@@ -6625,7 +6639,9 @@ class TriarchApp {
 
     const getMeta = (seat) => {
       const isLocal = this.mesh.getLocalFaction() === seat;
-      const isConcealed = this.net.peerCommitments.has(seat) && !this.net.peerReveals.has(seat) && !isLocal;
+      const hasNetworkConcealment = this.net.peerCommitments.has(seat) && !this.net.peerReveals.has(seat);
+      const hasLocalConcealment = this.game.concealedPlayers.has(seat);
+      const isConcealed = (hasNetworkConcealment || hasLocalConcealment) && !isLocal;
       const peerId = this.mesh.seats[seat]?.peerId;
       const latency = peerId ? this.mesh.latencies.get(peerId) : null;
       const poleIdx = this.game.initiativeOrder ? this.game.initiativeOrder.indexOf(seat) : -1;
@@ -7040,8 +7056,10 @@ export class BoardStageManager {
    * @param {string} phase
    * @param {Object} players
    * @param {number} pot
+   * @param {Set<string>} [concealedSeats=new Set()]
+   * @param {string|null} [localSeat=null]
    */
-  updateForPhase(phase, players = {}, pot = 0) {
+  updateForPhase(phase, players = {}, pot = 0, concealedSeats = new Set(), localSeat = null) {
     const phaseTag = this.container.querySelector('#stage-phase-tag');
     const potBadge = this.container.querySelector('#stage-pot-badge');
     const potAmount = this.container.querySelector('#stage-pot-amount');
@@ -7061,15 +7079,32 @@ export class BoardStageManager {
         if (potAmount) potAmount.textContent = pot;
       }
 
-      // Set to selected Combat dice
-      if (players.ruby?.currentDie) {
-        this.diceCubes.ruby.updateDice(players.ruby.currentDie.faces, players.ruby.currentDie.name, '#fb7185', 'from-rose-500 to-rose-700');
-      }
-      if (players.cyan?.currentDie) {
-        this.diceCubes.cyan.updateDice(players.cyan.currentDie.faces, players.cyan.currentDie.name, '#22d3ee', 'from-cyan-500 to-cyan-700');
-      }
-      if (players.amber?.currentDie) {
-        this.diceCubes.amber.updateDice(players.amber.currentDie.faces, players.amber.currentDie.name, '#facc15', 'from-amber-400 to-amber-600');
+      const seats = [
+        { key: 'ruby', accent: '#fb7185', grad: 'from-rose-500 to-rose-700' },
+        { key: 'cyan', accent: '#22d3ee', grad: 'from-cyan-500 to-cyan-700' },
+        { key: 'amber', accent: '#facc15', grad: 'from-amber-400 to-amber-600' }
+      ];
+
+      for (const { key, accent, grad } of seats) {
+        const p = players[key];
+        if (!p?.currentDie) continue;
+
+        const isConcealed = phase === 'TACTICAL_TURN' && concealedSeats.has(key) && localSeat !== key;
+        if (isConcealed) {
+          this.diceCubes[key].updateDice(
+            ['?', '?', '?', '?', '?', '?'],
+            '🔒 Secret Stance',
+            '#a855f7',
+            'from-purple-900 to-slate-900'
+          );
+        } else {
+          this.diceCubes[key].updateDice(
+            p.currentDie.faces,
+            p.currentDie.name,
+            accent,
+            grad
+          );
+        }
       }
     }
   }
@@ -7410,8 +7445,8 @@ export function renderPlayerHUDHTML(player, networkMeta = {}) {
       <div class="mt-3 pt-3 border-t border-slate-800/60 flex items-center justify-between text-xs">
         <div class="flex items-center gap-1.5">
           <span class="text-[11px] text-slate-400">Energy:</span>
-          <span class="font-mono font-bold text-amber-300 text-xs">⚡ ${player.energy ?? 0}</span>
-          ${player.staked > 0 ? `<span class="text-[10px] font-mono text-slate-400">(-${player.staked})</span>` : ''}
+          <span class="font-mono font-bold text-amber-300 text-xs">⚡ ${isConcealed ? '??' : (player.energy ?? 0)}</span>
+          ${!isConcealed && player.staked > 0 ? `<span class="text-[10px] font-mono text-slate-400">(-${player.staked})</span>` : ''}
         </div>
         <div class="flex items-center gap-1.5">
           <span class="text-[11px] text-slate-400">Shards:</span>
@@ -7423,17 +7458,24 @@ export function renderPlayerHUDHTML(player, networkMeta = {}) {
         </div>
       </div>
 
-      ${player.marketModifiers && player.marketModifiers.length > 0 ? `
+      ${isConcealed && player.marketModifiers && player.marketModifiers.length > 0 ? `
+        <div class="mt-2 flex flex-wrap gap-1">
+          <span class="text-[10px] px-2 py-0.5 rounded-md bg-purple-900/60 border border-purple-500/40 text-purple-200 font-mono">
+            🔒 Stance Concealed
+          </span>
+        </div>
+      ` : ''}
+      ${!isConcealed && player.marketModifiers && player.marketModifiers.length > 0 ? `
         <div class="mt-2 flex flex-wrap gap-1">
           ${player.marketModifiers.map(m => `
             <span class="text-[10px] px-2 py-0.5 rounded-md bg-indigo-900/60 border border-indigo-500/40 text-indigo-200 font-mono">
-              ${m === 'MELEE' ? '⚔️ Melee (+2)' : m === 'SHIFTER' ? '⚡ Shifter (+1)' : m === 'DUEL' ? '🛡️ Shield' : m}
+              ${m === 'MELEE' ? '⚔️ Melee (+2)' : m === 'SHIFTER' ? '⚡ Shifter (+1)' : m === 'DUEL' ? '🛡️ Shield' : m === 'CONCEAL' ? '🔒 Conceal' : m}
             </span>
           `).join('')}
         </div>
       ` : ''}
 
-      ${player.activeShard ? `
+      ${!isConcealed && player.activeShard ? `
         <div class="mt-2 text-[11px] px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 font-mono flex items-center gap-1">
           ⚡ Shard Active: ${player.activeShard}
         </div>
@@ -9668,7 +9710,7 @@ export function createDiceVisual(container, die) {
  * Robust offline caching, WebRTC P2P mesh support, NATS WebSocket adapter, and instant upgrade activation.
  */
 
-const CACHE_NAME = 'triarch-cache-v1.13.2';
+const CACHE_NAME = 'triarch-cache-v1.13.3';
 
 const PRECACHE_ASSETS = [
   './',
@@ -11568,6 +11610,7 @@ import { KvRoomRegistry, LOCAL_STORAGE_ROOMS_KEY } from '../src/network/kv-room-
 import { GameStateManager } from '../src/game/state.js';
 import { NetworkGameStateAdapter } from '../src/game/network-state.js';
 import { PeerMeshManager } from '../src/network/peer-mesh.js';
+import { renderPlayerHUDHTML } from '../src/ui/components.js';
 
 // Setup in-memory mock for storage in Node environment
 function setupMockStorage() {
@@ -11691,6 +11734,93 @@ describe('Cross-Tab LocalStorage Room Synchronization', () => {
     assert.equal(waitingAfterDelete.length, 0, 'Deleted room must no longer be discoverable');
   });
 });
+
+describe('Stance Concealment & Tactical Phase Privacy', () => {
+  test('Player using CONCEAL modifier is hidden from other players during Phase 2, then revealed upon Clash resolution', () => {
+    const game = new GameStateManager();
+    game.startMatch({ rubyAI: false, cyanAI: false, amberAI: false });
+
+    // Phase 1: Initiative Roll
+    game.rollInitiative(() => 0.5);
+    assert.equal(game.phase, 'TACTICAL_TURN');
+
+    const firstPlayerId = game.initiativeOrder[0];
+    const secondPlayerId = game.initiativeOrder[1];
+    const thirdPlayerId = game.initiativeOrder[2];
+
+    // Player 1 commits WITH 'CONCEAL' and 'MELEE'
+    game.commitTacticalTurn(firstPlayerId, {
+      spentEnergy: 9,
+      modifiers: ['CONCEAL', 'MELEE'],
+      dieId: 'cyan-b'
+    });
+
+    assert.ok(game.concealedPlayers.has(firstPlayerId), 'Player 1 must be tracked in concealedPlayers');
+
+    // Verify HUD for other players (networkMeta: isLocal = false, isConcealed = true)
+    const hiddenHUD = renderPlayerHUDHTML(game.players[firstPlayerId], {
+      isLocal: false,
+      isConcealed: true,
+      phase: 'TACTICAL_TURN'
+    });
+
+    assert.ok(hiddenHUD.includes('⚡ ??'), 'Energy amount must be hidden when concealed');
+    assert.ok(!hiddenHUD.includes('(-9)'), 'Staked energy deduction must be hidden when concealed');
+    assert.ok(hiddenHUD.includes('🔒 Stance Concealed'), 'Must render generic concealed badge');
+    assert.ok(!hiddenHUD.includes('⚔️ Melee (+2)'), 'Melee modifier must not leak to peers');
+    assert.ok(hiddenHUD.includes('🔒 Secret Stance'), 'Die name must be concealed');
+
+    // Verify HUD for local player (isLocal = true, isConcealed = false)
+    const localHUD = renderPlayerHUDHTML(game.players[firstPlayerId], {
+      isLocal: true,
+      isConcealed: false,
+      phase: 'TACTICAL_TURN'
+    });
+
+    assert.ok(localHUD.includes('(-9)'), 'Local player must see their own staked energy');
+    assert.ok(localHUD.includes('⚔️ Melee (+2)'), 'Local player must see their chosen modifiers');
+    assert.ok(localHUD.includes('🔒 Conceal'), 'Local player must see their Conceal modifier');
+
+    // Player 2 commits WITHOUT 'CONCEAL'
+    game.commitTacticalTurn(secondPlayerId, {
+      spentEnergy: 3,
+      modifiers: ['SHIFTER'],
+      dieId: 'ruby-a'
+    });
+
+    assert.ok(!game.concealedPlayers.has(secondPlayerId), 'Player 2 did not conceal');
+
+    const openHUD = renderPlayerHUDHTML(game.players[secondPlayerId], {
+      isLocal: false,
+      isConcealed: false,
+      phase: 'TACTICAL_TURN'
+    });
+
+    assert.ok(openHUD.includes('(-3)'), 'Open player staked energy is visible');
+    assert.ok(openHUD.includes('⚡ Shifter (+1)'), 'Open player modifiers are visible to all');
+    assert.ok(openHUD.includes('Ruby Archon'), 'Open player die choice is visible');
+
+    // Player 3 commits -> Clash auto-resolves, Phase transitions to RESOLUTION
+    game.commitTacticalTurn(thirdPlayerId, {
+      spentEnergy: 0,
+      modifiers: [],
+      dieId: 'amber-c'
+    });
+
+    assert.equal(game.phase, 'RESOLUTION');
+    assert.equal(game.concealedPlayers.size, 0, 'All concealments must be cleared upon clash resolution');
+
+    // Verify Player 1 HUD after Phase 2 (RESOLUTION phase) - all stances revealed!
+    const revealedHUD = renderPlayerHUDHTML(game.players[firstPlayerId], {
+      isLocal: false,
+      isConcealed: false,
+      phase: 'RESOLUTION'
+    });
+
+    assert.ok(revealedHUD.includes('Cyan Sentinel'), 'Player 1 die choice is now fully revealed');
+  });
+});
+
 
 
 
@@ -11918,8 +12048,8 @@ describe('Strict Two-Phase Execution Engine', () => {
 
 {
   "name": "TRIARCH: Cyclic Edge",
-  "version": "1.13.2",
-  "buildTime": "2026-08-26T22:17:53.070Z",
+  "version": "1.13.3",
+  "buildTime": "2026-08-26T22:29:37.052Z",
   "features": [
     "Strict Two-Phase Round Loop (Phase 1: Go-First Zero-Tie Initiative -> Phase 2: Tactical Turn & Energy Pot Clash)",
     "Dynamic Arena Pot Display & Accumulation of Unspent Energy",

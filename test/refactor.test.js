@@ -10,6 +10,7 @@ import { KvRoomRegistry, LOCAL_STORAGE_ROOMS_KEY } from '../src/network/kv-room-
 import { GameStateManager } from '../src/game/state.js';
 import { NetworkGameStateAdapter } from '../src/game/network-state.js';
 import { PeerMeshManager } from '../src/network/peer-mesh.js';
+import { renderPlayerHUDHTML } from '../src/ui/components.js';
 
 // Setup in-memory mock for storage in Node environment
 function setupMockStorage() {
@@ -133,3 +134,90 @@ describe('Cross-Tab LocalStorage Room Synchronization', () => {
     assert.equal(waitingAfterDelete.length, 0, 'Deleted room must no longer be discoverable');
   });
 });
+
+describe('Stance Concealment & Tactical Phase Privacy', () => {
+  test('Player using CONCEAL modifier is hidden from other players during Phase 2, then revealed upon Clash resolution', () => {
+    const game = new GameStateManager();
+    game.startMatch({ rubyAI: false, cyanAI: false, amberAI: false });
+
+    // Phase 1: Initiative Roll
+    game.rollInitiative(() => 0.5);
+    assert.equal(game.phase, 'TACTICAL_TURN');
+
+    const firstPlayerId = game.initiativeOrder[0];
+    const secondPlayerId = game.initiativeOrder[1];
+    const thirdPlayerId = game.initiativeOrder[2];
+
+    // Player 1 commits WITH 'CONCEAL' and 'MELEE'
+    game.commitTacticalTurn(firstPlayerId, {
+      spentEnergy: 9,
+      modifiers: ['CONCEAL', 'MELEE'],
+      dieId: 'cyan-b'
+    });
+
+    assert.ok(game.concealedPlayers.has(firstPlayerId), 'Player 1 must be tracked in concealedPlayers');
+
+    // Verify HUD for other players (networkMeta: isLocal = false, isConcealed = true)
+    const hiddenHUD = renderPlayerHUDHTML(game.players[firstPlayerId], {
+      isLocal: false,
+      isConcealed: true,
+      phase: 'TACTICAL_TURN'
+    });
+
+    assert.ok(hiddenHUD.includes('⚡ ??'), 'Energy amount must be hidden when concealed');
+    assert.ok(!hiddenHUD.includes('(-9)'), 'Staked energy deduction must be hidden when concealed');
+    assert.ok(hiddenHUD.includes('🔒 Stance Concealed'), 'Must render generic concealed badge');
+    assert.ok(!hiddenHUD.includes('⚔️ Melee (+2)'), 'Melee modifier must not leak to peers');
+    assert.ok(hiddenHUD.includes('🔒 Secret Stance'), 'Die name must be concealed');
+
+    // Verify HUD for local player (isLocal = true, isConcealed = false)
+    const localHUD = renderPlayerHUDHTML(game.players[firstPlayerId], {
+      isLocal: true,
+      isConcealed: false,
+      phase: 'TACTICAL_TURN'
+    });
+
+    assert.ok(localHUD.includes('(-9)'), 'Local player must see their own staked energy');
+    assert.ok(localHUD.includes('⚔️ Melee (+2)'), 'Local player must see their chosen modifiers');
+    assert.ok(localHUD.includes('🔒 Conceal'), 'Local player must see their Conceal modifier');
+
+    // Player 2 commits WITHOUT 'CONCEAL'
+    game.commitTacticalTurn(secondPlayerId, {
+      spentEnergy: 3,
+      modifiers: ['SHIFTER'],
+      dieId: 'ruby-a'
+    });
+
+    assert.ok(!game.concealedPlayers.has(secondPlayerId), 'Player 2 did not conceal');
+
+    const openHUD = renderPlayerHUDHTML(game.players[secondPlayerId], {
+      isLocal: false,
+      isConcealed: false,
+      phase: 'TACTICAL_TURN'
+    });
+
+    assert.ok(openHUD.includes('(-3)'), 'Open player staked energy is visible');
+    assert.ok(openHUD.includes('⚡ Shifter (+1)'), 'Open player modifiers are visible to all');
+    assert.ok(openHUD.includes('Ruby Archon'), 'Open player die choice is visible');
+
+    // Player 3 commits -> Clash auto-resolves, Phase transitions to RESOLUTION
+    game.commitTacticalTurn(thirdPlayerId, {
+      spentEnergy: 0,
+      modifiers: [],
+      dieId: 'amber-c'
+    });
+
+    assert.equal(game.phase, 'RESOLUTION');
+    assert.equal(game.concealedPlayers.size, 0, 'All concealments must be cleared upon clash resolution');
+
+    // Verify Player 1 HUD after Phase 2 (RESOLUTION phase) - all stances revealed!
+    const revealedHUD = renderPlayerHUDHTML(game.players[firstPlayerId], {
+      isLocal: false,
+      isConcealed: false,
+      phase: 'RESOLUTION'
+    });
+
+    assert.ok(revealedHUD.includes('Cyan Sentinel'), 'Player 1 die choice is now fully revealed');
+  });
+});
+
