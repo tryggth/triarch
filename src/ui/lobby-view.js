@@ -469,7 +469,7 @@ export class MultiplayerLobbyModal {
         <!-- Footer / Host Override -->
         <div class="pt-2 flex flex-col sm:flex-row items-center justify-between gap-3 border-t border-slate-800">
           <div class="text-xs font-mono text-slate-400">
-            Status: <span class="text-emerald-400 font-bold">Auto-launches on 3rd join</span>
+            Status: <span id="waiting-status-label" class="text-amber-400 font-bold">Waiting for 3 players... (1/3)</span>
           </div>
           ${this.mesh.isHost ? `
             <button id="btn-force-start-ai" class="px-4 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-mono text-slate-300 transition-all">
@@ -561,6 +561,19 @@ export class MultiplayerLobbyModal {
         </div>
       `;
     }).join('');
+
+    // Update dynamic status label
+    const humanCount = ['ruby', 'cyan', 'amber'].filter(s => this.mesh.seats[s]?.peerId && !this.mesh.seats[s]?.isAI).length;
+    const statusLabel = this.waitingModal.querySelector('#waiting-status-label');
+    if (statusLabel) {
+      if (humanCount === 3) {
+        statusLabel.textContent = 'All 3 players ready! Launching...';
+        statusLabel.className = 'text-emerald-400 font-bold';
+      } else {
+        statusLabel.textContent = `Waiting for 3 players... (${humanCount}/3 connected)`;
+        statusLabel.className = 'text-amber-400 font-bold';
+      }
+    }
   }
 
   closeWaitingModal() {
