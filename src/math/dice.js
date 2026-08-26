@@ -229,3 +229,35 @@ export const DICE_PRESETS = Object.freeze({
     dice: MIWIN_DICE
   }
 });
+
+/**
+ * Mathematically Fair 3-Player Go-First Initiative Dice
+ * Sum = 57 each, partition of 1..18, zero ties.
+ */
+export const GO_FIRST_DICE = Object.freeze({
+  G1: new Die(
+    'g1',
+    'Go-First Die 1 (G1)',
+    [1, 5, 10, 11, 13, 17],
+    '#fb7185',
+    'Go-First Die 1 (Faces: {1, 5, 10, 11, 13, 17}) — Assigned to Ruby Archon',
+    '🔺'
+  ),
+  G2: new Die(
+    'g2',
+    'Go-First Die 2 (G2)',
+    [3, 4, 7, 12, 15, 16],
+    '#22d3ee',
+    'Go-First Die 2 (Faces: {3, 4, 7, 12, 15, 16}) — Assigned to Cyan Sentinel',
+    '🔷'
+  ),
+  G3: new Die(
+    'g3',
+    'Go-First Die 3 (G3)',
+    [2, 6, 8, 9, 14, 18],
+    '#facc15',
+    'Go-First Die 3 (Faces: {2, 6, 8, 9, 14, 18}) — Assigned to Amber Keeper',
+    '🟡'
+  )
+});
+

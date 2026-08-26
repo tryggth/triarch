@@ -7,12 +7,15 @@
 import {
   ACTION_TYPES,
   SEATS,
+  GO_FIRST_TO_FACTION,
+  FACTION_TO_GO_FIRST,
   createActionEnvelope,
   validateActionEnvelope,
   serializeAction,
   deserializeAction
 } from './protocol.js';
 import { createSignalingTransport, generatePeerId } from './signaling.js';
+import { globalKvRegistry } from './kv-room-registry.js';
 
 export class PeerMeshManager {
   /**
@@ -52,8 +55,9 @@ export class PeerMeshManager {
    * @param {boolean} [isHost=false]
    * @param {string} [peerName]
    * @param {Object} [transportOptions={}]
+   * @param {string} [initialDie='G1'] - Chosen Go-First die ('G1', 'G2', 'G3')
    */
-  connect(roomCode, isHost = false, peerName = null, transportOptions = {}) {
+  connect(roomCode, isHost = false, peerName = null, transportOptions = {}, initialDie = 'G1') {
     if (this.transport) {
       this.disconnect();
     }
@@ -64,10 +68,11 @@ export class PeerMeshManager {
 
     this.transport = createSignalingTransport(this.roomCode, this.peerId, transportOptions);
 
-    // If host, auto-claim Ruby seat
+    // If host, auto-claim chosen Go-First die seat
     if (this.isHost) {
-      this.localSeat = 'ruby';
-      this.seats.ruby = {
+      const hostFaction = GO_FIRST_TO_FACTION[initialDie] || 'ruby';
+      this.localSeat = hostFaction;
+      this.seats[hostFaction] = {
         peerId: this.peerId,
         name: this.peerName,
         isAI: false,
@@ -195,15 +200,37 @@ export class PeerMeshManager {
     if (envelope.type === ACTION_TYPES.SEAT_CLAIM) {
       if (this.isHost) {
         const { peerId, peerName, seat } = envelope.payload;
-        if (SEATS.includes(seat) && (this.seats[seat].peerId === null || this.seats[seat].peerId === peerId)) {
-          this.seats[seat] = {
-            peerId,
-            name: peerName || `Archon_${seat}`,
-            isAI: false,
-            aiType: null,
-            ready: true
-          };
-          this.broadcastSeatState();
+        const targetFaction = GO_FIRST_TO_FACTION[seat] || seat;
+        if (['ruby', 'cyan', 'amber'].includes(targetFaction)) {
+          if (this.seats[targetFaction].peerId === null || this.seats[targetFaction].peerId === peerId || this.seats[targetFaction].isAI) {
+            this.seats[targetFaction] = {
+              peerId,
+              name: peerName || `Archon_${targetFaction}`,
+              isAI: false,
+              aiType: null,
+              ready: true
+            };
+            this.broadcastSeatState();
+            globalKvRegistry.updateRoomDebounced(this.roomCode, { seats: this.seats });
+
+            // Auto-Start Trigger: when all 3 Go-First dice seats are claimed
+            const humanCount = ['ruby', 'cyan', 'amber'].filter(s => this.seats[s].peerId && !this.seats[s].isAI).length;
+            if (humanCount === 3) {
+              console.log('[Mesh] All 3 Go-First dice seats claimed! Launching match automatically.');
+              const startEnvelope = createActionEnvelope(ACTION_TYPES.GAME_START, null, {
+                mode: 'CYCLIC_SHOWDOWN',
+                targetScore: 5,
+                seats: this.seats,
+                timestamp: Date.now()
+              });
+              this.broadcastAction(startEnvelope);
+              globalKvRegistry.updateRoomDebounced(this.roomCode, { status: 'ACTIVE', isFull: true, seats: this.seats });
+
+              for (const cb of this.listeners.gameStart) {
+                cb(startEnvelope.payload);
+              }
+            }
+          }
         }
       }
       return;
@@ -215,8 +242,8 @@ export class PeerMeshManager {
         this.seats = envelope.payload.seats;
         // Determine local seat
         this.localSeat = null;
-        for (const seat of SEATS) {
-          if (this.seats[seat].peerId === this.peerId) {
+        for (const seat of ['ruby', 'cyan', 'amber']) {
+          if (this.seats[seat]?.peerId === this.peerId) {
             this.localSeat = seat;
             break;
           }
@@ -243,27 +270,29 @@ export class PeerMeshManager {
   }
 
   /**
-   * Requests to claim a specific seat or first available.
-   * @param {string} targetSeat - 'ruby', 'cyan', 'amber'
+   * Requests to claim a specific Go-First die seat or faction seat.
+   * @param {string} targetSeat - 'G1', 'G2', 'G3' or 'ruby', 'cyan', 'amber'
    */
   claimSeat(targetSeat) {
-    if (!SEATS.includes(targetSeat)) return;
+    const targetFaction = GO_FIRST_TO_FACTION[targetSeat] || targetSeat;
+    if (!['ruby', 'cyan', 'amber'].includes(targetFaction)) return;
 
     if (this.isHost) {
-      this.seats[targetSeat] = {
+      this.seats[targetFaction] = {
         peerId: this.peerId,
         name: this.peerName,
         isAI: false,
         aiType: null,
         ready: true
       };
-      this.localSeat = targetSeat;
+      this.localSeat = targetFaction;
       this.broadcastSeatState();
+      globalKvRegistry.updateRoomDebounced(this.roomCode, { seats: this.seats });
     } else {
-      const claim = createActionEnvelope(ACTION_TYPES.SEAT_CLAIM, targetSeat, {
+      const claim = createActionEnvelope(ACTION_TYPES.SEAT_CLAIM, targetFaction, {
         peerId: this.peerId,
         peerName: this.peerName,
-        seat: targetSeat
+        seat: targetFaction
       });
       this.broadcastAction(claim);
     }

@@ -1,11 +1,14 @@
 /**
  * TRIARCH: Cyclic Edge - Synadia JetStream KV Room Registry
- * Manages global public room discovery and state rehydration with free-tier quota guards:
+ * Manages global public room discovery, Go-First die-driven matchmaking,
+ * and state rehydration with free-tier quota guards:
  *  - Bucket: TRIARCH_ROOMS (TTL: 3600s, History: 1, MaxValueSize: 8192)
  *  - Key: room.<ROOM_CODE>
  *  - Throttled / debounced writes (max 1 write per 2000ms)
  *  - Graceful degradation to in-memory / local fallback when JetStream is unavailable
  */
+
+import { GO_FIRST_TO_FACTION, FACTION_TO_GO_FIRST } from './protocol.js';
 
 export const KV_BUCKET_NAME = 'TRIARCH_ROOMS';
 export const KV_ROOM_TTL_SECONDS = 3600; // 1 hour auto-expiry
@@ -15,7 +18,9 @@ export const KV_WRITE_DEBOUNCE_MS = 2000; // 2s rate limit
 /**
  * @typedef {Object} RoomDescriptor
  * @property {string} roomCode
+ * @property {string} gameName
  * @property {string} hostPeerId
+ * @property {string} status - 'WAITING' | 'ACTIVE'
  * @property {number} createdAt
  * @property {number} updatedAt
  * @property {number} round
@@ -117,37 +122,68 @@ export class KvRoomRegistry {
 
   /**
    * Sanitizes and formats a RoomDescriptor for compact JSON serialization.
+   * Indexes seats strictly by Go-First dice (G1, G2, G3) with faction duality.
    * @param {Object} rawData
    * @returns {RoomDescriptor}
    */
   formatDescriptor(rawData) {
-    const seats = rawData.seats || {
-      ruby: { name: 'HostPlayer', isAI: false },
-      cyan: { name: 'Open (Bot)', isAI: true },
-      amber: { name: 'Open (Bot)', isAI: true }
+    const rawSeats = rawData.seats || {};
+
+    // Helper to extract seat data from either G-key or faction-key
+    const getSeat = (dieKey, factionKey, defaultName) => {
+      const src = rawSeats[dieKey] || rawSeats[factionKey] || {};
+      const claimed = src.claimed ?? !!src.peerId ?? false;
+      return {
+        peerId: src.peerId || null,
+        name: src.name || (claimed ? defaultName : null),
+        claimed: !!claimed,
+        faction: factionKey,
+        isAI: !!src.isAI
+      };
+    };
+
+    const g1 = getSeat('G1', 'ruby', 'Ruby Archon');
+    const g2 = getSeat('G2', 'cyan', 'Cyan Sentinel');
+    const g3 = getSeat('G3', 'amber', 'Amber Keeper');
+
+    const seats = {
+      G1: g1,
+      G2: g2,
+      G3: g3,
+      // Backward compatibility aliases
+      ruby: g1,
+      cyan: g2,
+      amber: g3
     };
 
     let playerCount = 0;
-    for (const s of Object.values(seats)) {
-      if (s && !s.isAI && s.peerId) playerCount++;
-      else if (s && !s.isAI) playerCount++;
-    }
+    if (g1.claimed) playerCount++;
+    if (g2.claimed) playerCount++;
+    if (g3.claimed) playerCount++;
     if (playerCount === 0) playerCount = 1;
+
+    const isFull = playerCount >= 3;
+    const status = rawData.status ? rawData.status : (isFull ? 'ACTIVE' : 'WAITING');
 
     return {
       roomCode: (rawData.roomCode || 'TR-XXXX').toUpperCase(),
+      gameName: rawData.gameName || `${(rawData.roomCode || 'TR-XXXX').toUpperCase()} Arena`,
       hostPeerId: rawData.hostPeerId || 'peer_host',
+      status,
       createdAt: rawData.createdAt || Date.now(),
       updatedAt: Date.now(),
       round: rawData.round || 1,
       phase: rawData.phase || 'DEPLOY',
       seats: {
-        ruby: { name: seats.ruby?.name || 'Ruby Archon', isAI: !!seats.ruby?.isAI },
-        cyan: { name: seats.cyan?.name || 'Cyan Sentinel', isAI: !!seats.cyan?.isAI },
-        amber: { name: seats.amber?.name || 'Amber Keeper', isAI: !!seats.amber?.isAI }
+        G1: g1,
+        G2: g2,
+        G3: g3,
+        ruby: g1,
+        cyan: g2,
+        amber: g3
       },
       playerCount,
-      isFull: playerCount >= 3
+      isFull
     };
   }
 
@@ -159,10 +195,20 @@ export class KvRoomRegistry {
    * @returns {Promise<RoomDescriptor>}
    */
   async createRoom(roomCode, hostPeerId, initialData = {}) {
+    const hostDie = initialData.hostDie || 'G1';
+    const hostFaction = GO_FIRST_TO_FACTION[hostDie] || 'ruby';
+    const hostName = initialData.hostName || 'Player 1 (Host)';
+
+    const seatsInit = initialData.seats || {
+      [hostDie]: { peerId: hostPeerId, name: hostName, claimed: true, faction: hostFaction, isAI: false }
+    };
+
     const descriptor = this.formatDescriptor({
       ...initialData,
       roomCode,
       hostPeerId,
+      status: 'WAITING',
+      seats: seatsInit,
       createdAt: Date.now()
     });
 
@@ -179,6 +225,70 @@ export class KvRoomRegistry {
         await this.kv.put(key, encoded);
       } catch (err) {
         console.warn('[KV Registry] Write error, saved to local cache:', err.message);
+      }
+    }
+
+    this.localFallbackRooms.set(key, descriptor);
+    return descriptor;
+  }
+
+  /**
+   * Claims a specific Go-First die seat in a room.
+   * @param {string} roomCode
+   * @param {string} dieKey - 'G1', 'G2', 'G3' (or 'ruby', 'cyan', 'amber')
+   * @param {string} peerId
+   * @param {string} peerName
+   * @returns {Promise<RoomDescriptor>}
+   */
+  async claimSeat(roomCode, dieKey, peerId, peerName) {
+    const code = roomCode.toUpperCase();
+    const normalizedDie = dieKey.startsWith('G') ? dieKey : (FACTION_TO_GO_FIRST[dieKey] || 'G1');
+    const faction = GO_FIRST_TO_FACTION[normalizedDie] || 'ruby';
+
+    const current = await this.getRoom(code);
+    if (!current) {
+      throw new Error(`Room ${code} does not exist`);
+    }
+
+    const currentSeat = current.seats[normalizedDie];
+    if (currentSeat && currentSeat.claimed && currentSeat.peerId && currentSeat.peerId !== peerId) {
+      throw new Error(`Go-First Die ${normalizedDie} is already claimed by ${currentSeat.name || 'another player'}`);
+    }
+
+    // Update seat
+    const updatedSeats = { ...current.seats };
+    updatedSeats[normalizedDie] = {
+      peerId,
+      name: peerName || `Archon_${normalizedDie}`,
+      claimed: true,
+      faction,
+      isAI: false
+    };
+
+    let count = 0;
+    if (updatedSeats.G1?.claimed) count++;
+    if (updatedSeats.G2?.claimed) count++;
+    if (updatedSeats.G3?.claimed) count++;
+
+    const isFull = count >= 3;
+    const status = isFull ? 'ACTIVE' : current.status;
+
+    const descriptor = this.formatDescriptor({
+      ...current,
+      seats: updatedSeats,
+      status,
+      playerCount: count,
+      isFull
+    });
+
+    const key = KvRoomRegistry.getRoomKey(code);
+    const encoded = this.jc.encode(descriptor);
+
+    if (this.kv && typeof this.kv.put === 'function') {
+      try {
+        await this.kv.put(key, encoded);
+      } catch (err) {
+        console.warn('[KV Registry] Claim write error:', err.message);
       }
     }
 
@@ -256,22 +366,26 @@ export class KvRoomRegistry {
         const entry = await this.kv.get(key);
         if (entry && entry.value) {
           const parsed = this.jc.decode(entry.value);
-          this.localFallbackRooms.set(key, parsed);
-          return parsed;
+          const formatted = this.formatDescriptor(parsed);
+          this.localFallbackRooms.set(key, formatted);
+          return formatted;
         }
       } catch (err) {
         // Fallback to local map
       }
     }
 
-    return this.localFallbackRooms.get(key) || null;
+    const cached = this.localFallbackRooms.get(key);
+    return cached ? this.formatDescriptor(cached) : null;
   }
 
   /**
    * Lists all active public rooms, filtering out expired ones (> 1 hour).
+   * @param {Object} [options={}]
+   * @param {boolean} [options.onlyWaiting=false] - Only return rooms in WAITING status
    * @returns {Promise<RoomDescriptor[]>}
    */
-  async listActiveRooms() {
+  async listActiveRooms(options = {}) {
     const now = Date.now();
     const maxAgeMs = KV_ROOM_TTL_SECONDS * 1000;
     const roomMap = new Map();
@@ -287,7 +401,10 @@ export class KvRoomRegistry {
               if (entry && entry.value) {
                 const descriptor = this.jc.decode(entry.value);
                 if (descriptor && (now - descriptor.updatedAt) < maxAgeMs) {
-                  roomMap.set(descriptor.roomCode, descriptor);
+                  const formatted = this.formatDescriptor(descriptor);
+                  if (!options.onlyWaiting || (formatted.status === 'WAITING' && !formatted.isFull)) {
+                    roomMap.set(formatted.roomCode, formatted);
+                  }
                 }
               }
             } catch (e) {}
@@ -301,8 +418,11 @@ export class KvRoomRegistry {
     // 2. Merge local fallback rooms
     for (const desc of this.localFallbackRooms.values()) {
       if (desc && (now - desc.updatedAt) < maxAgeMs) {
-        if (!roomMap.has(desc.roomCode)) {
-          roomMap.set(desc.roomCode, desc);
+        const formatted = this.formatDescriptor(desc);
+        if (!options.onlyWaiting || (formatted.status === 'WAITING' && !formatted.isFull)) {
+          if (!roomMap.has(formatted.roomCode)) {
+            roomMap.set(formatted.roomCode, formatted);
+          }
         }
       }
     }

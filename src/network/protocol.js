@@ -23,7 +23,26 @@ export const ACTION_TYPES = Object.freeze({
   CHAT_MESSAGE: 'CHAT_MESSAGE'
 });
 
-export const SEATS = Object.freeze(['ruby', 'cyan', 'amber']);
+export const SEATS = Object.freeze(['ruby', 'cyan', 'amber', 'G1', 'G2', 'G3']);
+export const GO_FIRST_SEATS = Object.freeze(['G1', 'G2', 'G3']);
+
+export const GO_FIRST_TO_FACTION = Object.freeze({
+  G1: 'ruby',
+  G2: 'cyan',
+  G3: 'amber',
+  ruby: 'ruby',
+  cyan: 'cyan',
+  amber: 'amber'
+});
+
+export const FACTION_TO_GO_FIRST = Object.freeze({
+  ruby: 'G1',
+  cyan: 'G2',
+  amber: 'G3',
+  G1: 'G1',
+  G2: 'G2',
+  G3: 'G3'
+});
 
 /**
  * Creates a standardized network action envelope.
