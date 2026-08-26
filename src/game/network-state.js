@@ -45,7 +45,7 @@ export class NetworkGameStateAdapter {
     this.mesh.onGameStart((payload) => {
       console.log('[NetState] Received GAME_START from Host:', payload);
       this.isMultiplayer = true;
-      this.game.init({
+      this.game.startMatch({
         mode: payload.mode || 'CYCLIC_SHOWDOWN',
         rubyAI: this.mesh.seats.ruby.isAI,
         cyanAI: this.mesh.seats.cyan.isAI,

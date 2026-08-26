@@ -10,15 +10,26 @@ import { BotStrategy } from '../src/game/bots.js';
 import { TRIARCH_STANDARD, Die } from '../src/math/dice.js';
 
 describe('GameStateManager Initialization & Properties', () => {
-  test('Initializes default 3-player cyclic state', () => {
+  test('Initializes default pre-match lobby state', () => {
     const game = new GameStateManager();
-    assert.equal(game.phase, GAME_PHASES.DEPLOY);
+    assert.equal(game.phase, GAME_PHASES.LOBBY);
+    assert.equal(game.isMatchActive, false);
     assert.equal(game.roundNumber, 1);
     assert.equal(Object.keys(game.players).length, 3);
     assert.equal(game.players.ruby.score, 0);
     assert.equal(game.players.cyan.score, 0);
     assert.equal(game.players.amber.score, 0);
     assert.equal(game.players.ruby.shards, 2);
+
+    // Starting match activates DEPLOY phase
+    game.startMatch();
+    assert.equal(game.isMatchActive, true);
+    assert.equal(game.phase, GAME_PHASES.DEPLOY);
+
+    // Ending match returns to LOBBY
+    game.endMatch();
+    assert.equal(game.isMatchActive, false);
+    assert.equal(game.phase, GAME_PHASES.LOBBY);
   });
 
   test('Supports state subscriptions and notifications', () => {

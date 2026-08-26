@@ -20,7 +20,8 @@ export class GameStateManager {
   init(options = {}) {
     const modeKey = options.mode || 'CYCLIC_SHOWDOWN';
     this.mode = GAME_MODES[modeKey] || GAME_MODES.CYCLIC_SHOWDOWN;
-    this.phase = GAME_PHASES.DEPLOY;
+    this.isMatchActive = options.active ?? false;
+    this.phase = this.isMatchActive ? (options.phase || GAME_PHASES.DEPLOY) : (options.phase || GAME_PHASES.LOBBY);
     this.roundNumber = 1;
     this.winner = null;
     this.roundHistory = [];
@@ -73,6 +74,21 @@ export class GameStateManager {
 
     this.lastClashResult = null;
     this.notify();
+  }
+
+  /**
+   * Starts an active match with 3 players/bots.
+   * @param {Object} [options={}]
+   */
+  startMatch(options = {}) {
+    this.init({ ...options, active: true, phase: GAME_PHASES.DEPLOY });
+  }
+
+  /**
+   * Ends current match and returns to pre-match lobby state.
+   */
+  endMatch() {
+    this.init({ active: false, phase: GAME_PHASES.LOBBY });
   }
 
   /**

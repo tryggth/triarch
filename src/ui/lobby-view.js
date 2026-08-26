@@ -535,7 +535,7 @@ export class MultiplayerLobbyModal {
         });
         this.mesh.broadcastAction(startEnvelope);
         this.net.isMultiplayer = true;
-        this.net.game.init({
+        this.net.game.startMatch({
           rubyAI: this.mesh.seats.ruby.isAI,
           cyanAI: this.mesh.seats.cyan.isAI,
           amberAI: this.mesh.seats.amber.isAI

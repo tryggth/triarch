@@ -538,6 +538,36 @@ class TriarchApp {
       this.auditLedger = new AuditLedgerView(this.game, ledgerMount);
     }
 
+    // Welcome & Matchmaking Portal Buttons
+    const btnWelcomeLobby = document.getElementById('btn-welcome-open-lobby');
+    if (btnWelcomeLobby) {
+      btnWelcomeLobby.addEventListener('click', () => {
+        sfx.playClick();
+        this.lobbyModal.open();
+      });
+    }
+
+    const btnWelcomeSolo = document.getElementById('btn-welcome-solo-ai');
+    if (btnWelcomeSolo) {
+      btnWelcomeSolo.addEventListener('click', () => {
+        sfx.playClick();
+        this.mesh.disconnect();
+        this.mesh.localSeat = 'ruby';
+        this.mesh.seats.ruby = { peerId: 'local_human', name: 'You (Ruby)', isAI: false, ready: true };
+        this.mesh.seats.cyan = { peerId: null, name: 'Bot (Cyan)', isAI: true, aiType: 'MAX_EV', ready: true };
+        this.mesh.seats.amber = { peerId: null, name: 'Bot (Amber)', isAI: true, aiType: 'SHARD_TACTICIAN', ready: true };
+        this.net.isMultiplayer = false;
+        this.game.startMatch({
+          mode: 'CYCLIC_SHOWDOWN',
+          rubyAI: false,
+          cyanAI: true,
+          amberAI: true
+        });
+        toast.show('⚔️ Solo Practice Match Started!', 'success', 2500);
+        sfx.playDominanceChime();
+      });
+    }
+
     // Clash Button
     const rollBtn = document.getElementById('btn-arena-roll');
     if (rollBtn) {
@@ -560,8 +590,8 @@ class TriarchApp {
       resetBtn.addEventListener('click', () => {
         sfx.playClick();
         if (this.boardStage) this.boardStage.hideResult();
-        this.game.init();
-        toast.show('Match reset! Ready for a new cyclic showdown.', 'info', 2000);
+        this.game.endMatch();
+        toast.show('Match ended. Returned to lobby portal.', 'info', 2000);
       });
     }
 
@@ -643,6 +673,18 @@ class TriarchApp {
   }
 
   renderGameState() {
+    const welcomePortal = document.getElementById('arena-welcome-portal');
+    const arenaGrid = document.getElementById('section-arena-grid');
+
+    if (!this.game.isMatchActive || this.game.phase === GAME_PHASES.LOBBY) {
+      if (welcomePortal) welcomePortal.classList.remove('hidden');
+      if (arenaGrid) arenaGrid.classList.add('hidden');
+      return;
+    }
+
+    if (welcomePortal) welcomePortal.classList.add('hidden');
+    if (arenaGrid) arenaGrid.classList.remove('hidden');
+
     const hudRuby = document.getElementById('hud-ruby');
     const hudCyan = document.getElementById('hud-cyan');
     const hudAmber = document.getElementById('hud-amber');

@@ -1,6 +1,6 @@
 ================================================================================
  TRIARCH: CYCLIC EDGE - COMBINED SOURCE CODE BUNDLE
- Generated on: 2026-08-26T19:50:18.388Z
+ Generated on: 2026-08-26T20:58:31.432Z
  Total Source Files: 58
 ================================================================================
 
@@ -277,8 +277,11 @@ export class QRScannerHelper {
     body:not(.lab-mode-active) .lab-only {
       display: none !important;
     }
-    body:not(.lab-mode-active) #section-arena-grid {
+    body:not(.lab-mode-active) #section-arena-grid:not(.hidden) {
       display: block !important;
+    }
+    #section-arena-grid.hidden, #arena-welcome-portal.hidden {
+      display: none !important;
     }
     body:not(.lab-mode-active) #arena-main-column {
       max-width: 880px;
@@ -385,8 +388,101 @@ export class QRScannerHelper {
     <!-- ==================== SECTION 1: ARENA BATTLE ==================== -->
     <section id="section-arena" class="space-y-6">
       
-      <!-- Arena Overview Grid -->
-      <div id="section-arena-grid" class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <!-- Welcome & Matchmaking Portal (Shown when no active match is in progress) -->
+      <div id="arena-welcome-portal" class="max-w-3xl mx-auto py-6 sm:py-10 px-4 sm:px-6 space-y-8 animate-fade-in text-center">
+        <!-- Hero Icon & Title -->
+        <div class="space-y-4 flex flex-col items-center">
+          <div class="relative w-24 h-24 sm:w-28 sm:h-28 flex items-center justify-center">
+            <div class="absolute inset-0 rounded-full bg-gradient-to-tr from-rose-500/20 via-cyan-500/20 to-amber-500/20 blur-xl animate-pulse-slow"></div>
+            <img src="triarch.svg" alt="TRIARCH Logo" class="w-20 h-20 sm:w-24 sm:h-24 drop-shadow-[0_0_25px_#6366f1aa] transform hover:rotate-12 transition-transform duration-500" />
+          </div>
+          
+          <div class="space-y-2">
+            <h2 class="font-cinzel text-3xl sm:text-4xl lg:text-5xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-rose-400 via-cyan-300 to-amber-300">
+              TRIARCH
+            </h2>
+            <p class="text-xs sm:text-sm font-mono tracking-widest text-indigo-300 font-bold uppercase">
+              Cyclic Edge · Non-Transitive Dice Arena
+            </p>
+          </div>
+
+          <p class="max-w-xl text-xs sm:text-sm text-slate-400 font-mono leading-relaxed">
+            A pure game-theoretic 3-player arena of nontransitive dominance loops. No single die is universally superior: <span class="text-rose-400 font-bold">Ruby</span> beats <span class="text-cyan-400 font-bold">Cyan</span> (55.6%), <span class="text-cyan-400 font-bold">Cyan</span> beats <span class="text-amber-400 font-bold">Amber</span> (55.6%), and <span class="text-amber-400 font-bold">Amber</span> beats <span class="text-rose-400 font-bold">Ruby</span> (55.6%).
+          </p>
+        </div>
+
+        <!-- 3 Go-First Fair Initiative Dice Quick View -->
+        <div class="grid grid-cols-1 sm:grid-cols-3 gap-3 text-left">
+          <div class="p-4 rounded-2xl border border-rose-500/30 bg-rose-950/20 backdrop-blur-md">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-mono font-bold text-rose-400">🔺 Go-First G1</span>
+              <span class="text-[10px] font-mono text-rose-300 font-bold">Ruby</span>
+            </div>
+            <div class="text-sm font-mono font-bold text-white mt-1">{1, 5, 10, 11, 13, 17}</div>
+            <div class="text-[10px] font-mono text-slate-400 mt-0.5">Sum: 57 · High ceiling</div>
+          </div>
+
+          <div class="p-4 rounded-2xl border border-cyan-500/30 bg-cyan-950/20 backdrop-blur-md">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-mono font-bold text-cyan-400">🔷 Go-First G2</span>
+              <span class="text-[10px] font-mono text-cyan-300 font-bold">Cyan</span>
+            </div>
+            <div class="text-sm font-mono font-bold text-white mt-1">{3, 4, 7, 12, 15, 16}</div>
+            <div class="text-[10px] font-mono text-slate-400 mt-0.5">Sum: 57 · Balanced mid</div>
+          </div>
+
+          <div class="p-4 rounded-2xl border border-amber-500/30 bg-amber-950/20 backdrop-blur-md">
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-mono font-bold text-amber-400">🟡 Go-First G3</span>
+              <span class="text-[10px] font-mono text-amber-300 font-bold">Amber</span>
+            </div>
+            <div class="text-sm font-mono font-bold text-white mt-1">{2, 6, 8, 9, 14, 18}</div>
+            <div class="text-[10px] font-mono text-slate-400 mt-0.5">Sum: 57 · Stable spread</div>
+          </div>
+        </div>
+
+        <!-- Primary Action Cards -->
+        <div class="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <!-- Multiplayer Lobby Entry -->
+          <button id="btn-welcome-open-lobby" class="group p-6 rounded-3xl border border-indigo-500/40 bg-gradient-to-b from-indigo-950/40 to-slate-950/80 hover:border-indigo-500 hover:shadow-[0_0_30px_#6366f140] transition-all text-left flex flex-col justify-between gap-4">
+            <div class="space-y-2">
+              <div class="w-12 h-12 rounded-2xl bg-indigo-600/20 border border-indigo-500/30 flex items-center justify-center text-2xl group-hover:scale-110 transition-transform">
+                🌐
+              </div>
+              <h3 class="text-base font-bold text-white font-cinzel tracking-wider">
+                Multiplayer Matchmaking
+              </h3>
+              <p class="text-xs text-slate-400 font-mono leading-relaxed">
+                Create or join a 3-player room via P2P Mesh & Synadia NATS. Claim your Go-First die and clash with human Archons.
+              </p>
+            </div>
+            <div class="w-full py-2.5 px-4 rounded-xl bg-indigo-600 group-hover:bg-indigo-500 text-white font-bold font-mono text-xs text-center tracking-wider transition-colors shadow-md">
+              Enter Multiplayer Lobby ➔
+            </div>
+          </button>
+
+          <!-- Solo Practice vs AI -->
+          <button id="btn-welcome-solo-ai" class="group p-6 rounded-3xl border border-slate-800 bg-gradient-to-b from-slate-900/60 to-slate-950/80 hover:border-emerald-500/50 hover:shadow-[0_0_30px_#10b98130] transition-all text-left flex flex-col justify-between gap-4">
+            <div class="space-y-2">
+              <div class="w-12 h-12 rounded-2xl bg-emerald-600/20 border border-emerald-500/30 flex items-center justify-center text-2xl group-hover:scale-110 transition-transform">
+                🤖
+              </div>
+              <h3 class="text-base font-bold text-white font-cinzel tracking-wider">
+                Solo Practice vs AI
+              </h3>
+              <p class="text-xs text-slate-400 font-mono leading-relaxed">
+                Instant offline practice match. You command Ruby Archon (G1), while autonomous AI bots pilot Cyan & Amber.
+              </p>
+            </div>
+            <div class="w-full py-2.5 px-4 rounded-xl bg-slate-800 group-hover:bg-emerald-600 text-white font-bold font-mono text-xs text-center tracking-wider transition-colors shadow-md">
+              Launch Solo Match ➔
+            </div>
+          </button>
+        </div>
+      </div>
+
+      <!-- Arena Overview Grid (Active Battlefield — Shown when match is live) -->
+      <div id="section-arena-grid" class="hidden grid grid-cols-1 lg:grid-cols-12 gap-6">
         
         <!-- Left Column: Cyclic Tournament Graph Visualizer & Match Ledger (Lab Only) -->
         <div id="cyclic-graph-card" class="lab-only lg:col-span-5 space-y-6 animate-fade-in">
@@ -1389,7 +1485,7 @@ export class NetworkGameStateAdapter {
     this.mesh.onGameStart((payload) => {
       console.log('[NetState] Received GAME_START from Host:', payload);
       this.isMultiplayer = true;
-      this.game.init({
+      this.game.startMatch({
         mode: payload.mode || 'CYCLIC_SHOWDOWN',
         rubyAI: this.mesh.seats.ruby.isAI,
         cyanAI: this.mesh.seats.cyan.isAI,
@@ -1802,7 +1898,8 @@ export class GameStateManager {
   init(options = {}) {
     const modeKey = options.mode || 'CYCLIC_SHOWDOWN';
     this.mode = GAME_MODES[modeKey] || GAME_MODES.CYCLIC_SHOWDOWN;
-    this.phase = GAME_PHASES.DEPLOY;
+    this.isMatchActive = options.active ?? false;
+    this.phase = this.isMatchActive ? (options.phase || GAME_PHASES.DEPLOY) : (options.phase || GAME_PHASES.LOBBY);
     this.roundNumber = 1;
     this.winner = null;
     this.roundHistory = [];
@@ -1855,6 +1952,21 @@ export class GameStateManager {
 
     this.lastClashResult = null;
     this.notify();
+  }
+
+  /**
+   * Starts an active match with 3 players/bots.
+   * @param {Object} [options={}]
+   */
+  startMatch(options = {}) {
+    this.init({ ...options, active: true, phase: GAME_PHASES.DEPLOY });
+  }
+
+  /**
+   * Ends current match and returns to pre-match lobby state.
+   */
+  endMatch() {
+    this.init({ active: false, phase: GAME_PHASES.LOBBY });
   }
 
   /**
@@ -6102,6 +6214,36 @@ class TriarchApp {
       this.auditLedger = new AuditLedgerView(this.game, ledgerMount);
     }
 
+    // Welcome & Matchmaking Portal Buttons
+    const btnWelcomeLobby = document.getElementById('btn-welcome-open-lobby');
+    if (btnWelcomeLobby) {
+      btnWelcomeLobby.addEventListener('click', () => {
+        sfx.playClick();
+        this.lobbyModal.open();
+      });
+    }
+
+    const btnWelcomeSolo = document.getElementById('btn-welcome-solo-ai');
+    if (btnWelcomeSolo) {
+      btnWelcomeSolo.addEventListener('click', () => {
+        sfx.playClick();
+        this.mesh.disconnect();
+        this.mesh.localSeat = 'ruby';
+        this.mesh.seats.ruby = { peerId: 'local_human', name: 'You (Ruby)', isAI: false, ready: true };
+        this.mesh.seats.cyan = { peerId: null, name: 'Bot (Cyan)', isAI: true, aiType: 'MAX_EV', ready: true };
+        this.mesh.seats.amber = { peerId: null, name: 'Bot (Amber)', isAI: true, aiType: 'SHARD_TACTICIAN', ready: true };
+        this.net.isMultiplayer = false;
+        this.game.startMatch({
+          mode: 'CYCLIC_SHOWDOWN',
+          rubyAI: false,
+          cyanAI: true,
+          amberAI: true
+        });
+        toast.show('⚔️ Solo Practice Match Started!', 'success', 2500);
+        sfx.playDominanceChime();
+      });
+    }
+
     // Clash Button
     const rollBtn = document.getElementById('btn-arena-roll');
     if (rollBtn) {
@@ -6124,8 +6266,8 @@ class TriarchApp {
       resetBtn.addEventListener('click', () => {
         sfx.playClick();
         if (this.boardStage) this.boardStage.hideResult();
-        this.game.init();
-        toast.show('Match reset! Ready for a new cyclic showdown.', 'info', 2000);
+        this.game.endMatch();
+        toast.show('Match ended. Returned to lobby portal.', 'info', 2000);
       });
     }
 
@@ -6207,6 +6349,18 @@ class TriarchApp {
   }
 
   renderGameState() {
+    const welcomePortal = document.getElementById('arena-welcome-portal');
+    const arenaGrid = document.getElementById('section-arena-grid');
+
+    if (!this.game.isMatchActive || this.game.phase === GAME_PHASES.LOBBY) {
+      if (welcomePortal) welcomePortal.classList.remove('hidden');
+      if (arenaGrid) arenaGrid.classList.add('hidden');
+      return;
+    }
+
+    if (welcomePortal) welcomePortal.classList.add('hidden');
+    if (arenaGrid) arenaGrid.classList.remove('hidden');
+
     const hudRuby = document.getElementById('hud-ruby');
     const hudCyan = document.getElementById('hud-cyan');
     const hudAmber = document.getElementById('hud-amber');
@@ -7509,7 +7663,7 @@ export class MultiplayerLobbyModal {
         });
         this.mesh.broadcastAction(startEnvelope);
         this.net.isMultiplayer = true;
-        this.net.game.init({
+        this.net.game.startMatch({
           rubyAI: this.mesh.seats.ruby.isAI,
           cyanAI: this.mesh.seats.cyan.isAI,
           amberAI: this.mesh.seats.amber.isAI
@@ -9790,15 +9944,26 @@ import { BotStrategy } from '../src/game/bots.js';
 import { TRIARCH_STANDARD, Die } from '../src/math/dice.js';
 
 describe('GameStateManager Initialization & Properties', () => {
-  test('Initializes default 3-player cyclic state', () => {
+  test('Initializes default pre-match lobby state', () => {
     const game = new GameStateManager();
-    assert.equal(game.phase, GAME_PHASES.DEPLOY);
+    assert.equal(game.phase, GAME_PHASES.LOBBY);
+    assert.equal(game.isMatchActive, false);
     assert.equal(game.roundNumber, 1);
     assert.equal(Object.keys(game.players).length, 3);
     assert.equal(game.players.ruby.score, 0);
     assert.equal(game.players.cyan.score, 0);
     assert.equal(game.players.amber.score, 0);
     assert.equal(game.players.ruby.shards, 2);
+
+    // Starting match activates DEPLOY phase
+    game.startMatch();
+    assert.equal(game.isMatchActive, true);
+    assert.equal(game.phase, GAME_PHASES.DEPLOY);
+
+    // Ending match returns to LOBBY
+    game.endMatch();
+    assert.equal(game.isMatchActive, false);
+    assert.equal(game.phase, GAME_PHASES.LOBBY);
   });
 
   test('Supports state subscriptions and notifications', () => {
