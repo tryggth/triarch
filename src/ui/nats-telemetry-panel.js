@@ -205,7 +205,43 @@ export class NatsTelemetryPanel {
           </div>
         </div>
 
-        <!-- Section 4: Live Subject Traffic Monitor -->
+        <!-- Section 4: JetStream KV Room Registry & Storage Quota Guard -->
+        <div class="space-y-3 p-4 rounded-2xl bg-slate-900/50 border border-slate-800">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <span class="text-xs font-bold uppercase tracking-wider text-slate-300 font-mono">
+                JetStream KV Room Registry
+              </span>
+              <p class="text-[11px] text-slate-400">
+                Global discovery index & state rehydration with free-tier quota guardrails.
+              </p>
+            </div>
+            <span class="px-2.5 py-1 rounded-full bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 text-[11px] font-mono font-bold">
+              🛡️ Quota Guard: Active (TTL 1h · History 1)
+            </span>
+          </div>
+
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
+            <div class="p-2.5 rounded-xl bg-slate-950 border border-slate-800/80">
+              <div class="text-[10px] text-slate-500 uppercase">Bucket</div>
+              <div class="font-bold text-indigo-300">TRIARCH_ROOMS</div>
+            </div>
+            <div class="p-2.5 rounded-xl bg-slate-950 border border-slate-800/80">
+              <div class="text-[10px] text-slate-500 uppercase">Auto-Expiry (TTL)</div>
+              <div class="font-bold text-amber-300">3600s (1 Hour)</div>
+            </div>
+            <div class="p-2.5 rounded-xl bg-slate-950 border border-slate-800/80">
+              <div class="text-[10px] text-slate-500 uppercase">Max Payload</div>
+              <div class="font-bold text-cyan-300">8192 Bytes</div>
+            </div>
+            <div class="p-2.5 rounded-xl bg-slate-950 border border-slate-800/80">
+              <div class="text-[10px] text-slate-500 uppercase">Write Policy</div>
+              <div class="font-bold text-emerald-300">Debounced (2.0s)</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 5: Live Subject Traffic Monitor -->
         <div class="space-y-3 p-4 rounded-2xl bg-slate-900/50 border border-slate-800">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">

@@ -1,7 +1,8 @@
 /**
  * TRIARCH: Cyclic Edge - Multiplayer Lobby & WebRTC Mesh UI
  * Glassmorphic modal supporting instant room creation, SVG QR code generation,
- * camera QR scanner, live 3-seat claiming, latency badges, and bot toggles.
+ * camera QR scanner, JetStream KV active public room browser, live 3-seat claiming,
+ * latency badges, and bot toggles.
  */
 
 import { generateRoomCode } from '../network/signaling.js';
@@ -9,6 +10,7 @@ import { generateQRCodeSVG, CameraQRScanner } from './qr.js';
 import { toast } from './toast.js';
 import { sfx } from '../audio/sfx.js';
 import { ACTION_TYPES, createActionEnvelope } from '../network/protocol.js';
+import { globalKvRegistry } from '../network/kv-room-registry.js';
 
 export class MultiplayerLobbyModal {
   /**
@@ -26,6 +28,11 @@ export class MultiplayerLobbyModal {
     this.mesh.onSeatChange(() => {
       if (this.isOpen()) {
         this.renderSeats();
+      }
+      if (this.mesh.isHost && this.mesh.roomCode) {
+        globalKvRegistry.updateRoomDebounced(this.mesh.roomCode, {
+          seats: this.mesh.seats
+        });
       }
     });
 
@@ -68,7 +75,7 @@ export class MultiplayerLobbyModal {
             <span class="text-3xl">🌐</span>
             <div>
               <h2 class="text-xl font-bold text-white font-cinzel tracking-wider">Multiplayer Mesh Lobby</h2>
-              <p class="text-xs font-mono text-slate-400">Zero-Backend 3-Node WebRTC Peer-to-Peer Discovery</p>
+              <p class="text-xs font-mono text-slate-400">Zero-Backend 3-Node WebRTC Peer-to-Peer & Synadia Cloud Discovery</p>
             </div>
           </div>
           <button id="btn-close-lobby" class="text-slate-400 hover:text-white text-2xl font-bold px-2 py-1">&times;</button>
@@ -80,7 +87,7 @@ export class MultiplayerLobbyModal {
             👑 Host Room
           </button>
           <button id="tab-btn-join" class="px-4 py-2 text-xs sm:text-sm font-mono font-bold rounded-xl transition-all ${this.activeSubTab === 'join' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-900 text-slate-400 hover:text-white'}">
-            🔗 Join Room / Scan QR
+            🔗 Join Room / Browse
           </button>
         </div>
 
@@ -124,6 +131,9 @@ export class MultiplayerLobbyModal {
     if (!this.mesh.roomCode || !this.mesh.isHost) {
       const newRoomCode = generateRoomCode();
       this.mesh.connect(newRoomCode, true, 'Ruby Archon (Host)');
+      globalKvRegistry.createRoom(newRoomCode, this.mesh.peerId, {
+        seats: this.mesh.seats
+      }).catch(() => {});
     }
 
     const roomCode = this.mesh.roomCode;
@@ -211,6 +221,8 @@ export class MultiplayerLobbyModal {
 
     container.innerHTML = `
       <div class="space-y-6">
+        
+        <!-- Join by Room Code Box -->
         <div class="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-4">
           <div>
             <label for="input-room-code" class="block text-xs font-mono font-bold text-slate-300 uppercase tracking-wider mb-1">
@@ -236,6 +248,24 @@ export class MultiplayerLobbyModal {
           </div>
         </div>
 
+        <!-- JetStream KV Public Room Browser -->
+        <div class="space-y-3 p-5 rounded-2xl bg-slate-900/40 border border-slate-800">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="text-sm">🌐</span>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300 font-mono">Active Public Rooms</h3>
+              <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-500/30">JetStream Discovery</span>
+            </div>
+            <button id="btn-refresh-public-rooms" class="text-xs font-mono text-indigo-400 hover:text-indigo-200 flex items-center gap-1">
+              <span>🔄</span> Refresh
+            </button>
+          </div>
+
+          <div id="public-rooms-list" class="space-y-2 max-h-44 overflow-y-auto pr-1">
+            <div class="text-xs font-mono text-slate-500 text-center py-4">Scanning JetStream room registry...</div>
+          </div>
+        </div>
+
         <!-- Seating Status (if connected) -->
         ${this.mesh.roomCode ? `
           <div class="space-y-2">
@@ -252,6 +282,7 @@ export class MultiplayerLobbyModal {
     const camWrapper = container.querySelector('#camera-scanner-wrapper');
     const camStop = container.querySelector('#btn-stop-camera');
     const video = container.querySelector('#qr-video-stream');
+    const btnRefresh = container.querySelector('#btn-refresh-public-rooms');
 
     joinBtn.onclick = () => {
       sfx.playClick();
@@ -292,58 +323,122 @@ export class MultiplayerLobbyModal {
       camWrapper.classList.add('hidden');
     };
 
+    if (btnRefresh) {
+      btnRefresh.onclick = () => {
+        sfx.playClick();
+        this.loadAndRenderPublicRooms();
+      };
+    }
+
+    this.loadAndRenderPublicRooms();
+
     if (this.mesh.roomCode) {
       this.renderSeats();
     }
   }
 
-  renderSeats() {
+  async loadAndRenderPublicRooms() {
     if (!this.modal) return;
-    const container = this.modal.querySelector('#lobby-seats-container');
-    if (!container) return;
+    const listEl = this.modal.querySelector('#public-rooms-list');
+    if (!listEl) return;
 
-    const seatColors = {
-      ruby: { border: 'border-rose-500/40', bg: 'bg-rose-950/20', text: 'text-rose-400', symbol: '🔺', title: 'Ruby Archon' },
-      cyan: { border: 'border-cyan-500/40', bg: 'bg-cyan-950/20', text: 'text-cyan-400', symbol: '🔷', title: 'Cyan Sentinel' },
-      amber: { border: 'border-amber-500/40', bg: 'bg-amber-950/20', text: 'text-amber-400', symbol: '🟡', title: 'Amber Keeper' }
-    };
+    try {
+      const rooms = await globalKvRegistry.listActiveRooms();
+      if (rooms.length === 0) {
+        listEl.innerHTML = `
+          <div class="text-xs font-mono text-slate-500 text-center py-4 bg-slate-950/40 rounded-xl border border-slate-800/80">
+            No active public rooms found. Host a new room to start a match!
+          </div>
+        `;
+        return;
+      }
 
-    container.innerHTML = ['ruby', 'cyan', 'amber'].map((s) => {
-      const seatData = this.mesh.seats[s];
-      const cfg = seatColors[s];
-      const isMe = this.mesh.localSeat === s;
-      const rtt = seatData.peerId ? this.mesh.latencies.get(seatData.peerId) : null;
+      listEl.innerHTML = rooms.map((r) => {
+        const minutesAgo = Math.max(0, Math.round((Date.now() - r.updatedAt) / 60000));
+        const timeBadge = minutesAgo === 0 ? 'Just now' : `${minutesAgo}m ago`;
+        const seatIcons = Object.values(r.seats || {}).map(s => s && !s.isAI ? '👤' : '🤖').join(' ');
 
-      return `
-        <div class="p-3.5 rounded-2xl border ${cfg.border} ${cfg.bg} backdrop-blur-md flex flex-col justify-between space-y-3">
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-2">
-              <span class="text-xl">${cfg.symbol}</span>
-              <div>
-                <div class="text-xs font-bold ${cfg.text}">${cfg.title}</div>
-                <div class="text-[11px] font-mono text-slate-300 flex items-center gap-1">
-                  <span>${seatData.name}</span>
-                  ${isMe ? '<span class="text-[9px] font-bold px-1.5 py-0.2 rounded bg-indigo-950 text-indigo-300 font-mono">YOU</span>' : ''}
-                </div>
+        return `
+          <div class="flex items-center justify-between p-3 rounded-xl bg-slate-950/80 border border-slate-800 hover:border-indigo-500/40 transition-colors">
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="font-bold font-mono text-sm text-indigo-300">${r.roomCode}</span>
+                <span class="text-[10px] font-mono px-2 py-0.2 rounded-full ${r.isFull ? 'bg-rose-950 text-rose-300' : 'bg-emerald-950 text-emerald-300'}">
+                  ${r.playerCount}/3 Archons
+                </span>
+                <span class="text-[10px] font-mono text-slate-500">${timeBadge}</span>
+              </div>
+              <div class="text-[11px] font-mono text-slate-400 mt-0.5">
+                Phase: ${r.phase} · Round ${r.round} · [${seatIcons}]
               </div>
             </div>
-            ${rtt ? `<span id="latency-${seatData.peerId}" class="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-emerald-950 text-emerald-300">${rtt}ms</span>` : ''}
+            <button data-quick-join="${r.roomCode}" class="px-3 py-1.5 rounded-lg bg-indigo-600/80 hover:bg-indigo-600 text-white text-xs font-mono font-bold transition-all shadow-sm">
+              ⚡ Quick Join
+            </button>
+          </div>
+        `;
+      }).join('');
+
+      // Wire quick join buttons
+      listEl.querySelectorAll('button[data-quick-join]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const code = btn.getAttribute('data-quick-join');
+          const input = this.modal.querySelector('#input-room-code');
+          const joinBtn = this.modal.querySelector('#btn-join-room-submit');
+          if (input && joinBtn) {
+            input.value = code;
+            joinBtn.click();
+          }
+        });
+      });
+    } catch (err) {
+      listEl.innerHTML = `
+        <div class="text-xs font-mono text-slate-500 text-center py-4">
+          Discovery registry standby mode. Enter code manually above.
+        </div>
+      `;
+    }
+  }
+
+  renderSeats() {
+    if (!this.modal) return;
+    const seatsContainer = this.modal.querySelector('#lobby-seats-container');
+    if (!seatsContainer) return;
+
+    const seats = [
+      { key: 'ruby', name: 'Ruby Archon', color: '#fb7185', bg: 'rgba(251, 113, 133, 0.1)', border: 'rgba(251, 113, 133, 0.4)' },
+      { key: 'cyan', name: 'Cyan Sentinel', color: '#22d3ee', bg: 'rgba(34, 211, 238, 0.1)', border: 'rgba(34, 211, 238, 0.4)' },
+      { key: 'amber', name: 'Amber Keeper', color: '#facc15', bg: 'rgba(250, 204, 21, 0.1)', border: 'rgba(250, 204, 21, 0.4)' }
+    ];
+
+    seatsContainer.innerHTML = seats.map((s) => {
+      const seatData = this.mesh.seats[s.key];
+      const isLocal = this.mesh.localSeat === s.key;
+      const isAI = seatData.isAI;
+      const peerId = seatData.peerId;
+      const isHost = this.mesh.isHost;
+
+      return `
+        <div class="p-4 rounded-2xl border transition-all flex flex-col justify-between gap-3" style="background: ${s.bg}; border-color: ${s.border};">
+          <div>
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-mono font-bold" style="color: ${s.color}">${s.name}</span>
+              ${isLocal ? '<span class="px-1.5 py-0.2 rounded-md bg-indigo-950 border border-indigo-500/50 text-indigo-300 text-[10px] font-mono font-bold">YOU</span>' : ''}
+              ${peerId && !isLocal ? `<span id="latency-${peerId}" class="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-slate-900 text-slate-400">P2P</span>` : ''}
+            </div>
+            <div class="text-sm font-bold text-white mt-1 truncate">
+              ${isAI ? `🤖 ${seatData.name || 'Bot'}` : `👤 ${seatData.name || 'Player'}`}
+            </div>
           </div>
 
-          <!-- Seat Claim or Bot Switch Controls -->
-          <div class="pt-2 border-t border-slate-800/60 flex items-center justify-between">
-            ${this.mesh.isHost && s !== 'ruby' ? `
-              <button class="btn-toggle-seat-ai text-[10px] font-mono px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors" data-seat="${s}">
-                ${seatData.isAI ? `🤖 AI: ${seatData.aiType?.split('_')[0]}` : '👤 Human'}
+          <div class="pt-2 border-t border-slate-800/60 flex items-center justify-between gap-1">
+            ${isHost && !isLocal ? `
+              <button data-toggle-ai="${s.key}" class="px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-[10px] font-mono text-slate-300 border border-slate-700 transition-all">
+                ${isAI ? 'Switch to Human' : 'Switch to Bot'}
               </button>
-            ` : `
-              <span class="text-[10px] font-mono text-slate-500">
-                ${seatData.isAI ? '🤖 Automated Bot' : '👤 Connected Peer'}
-              </span>
-            `}
-
-            ${!isMe && (!seatData.peerId || seatData.isAI) ? `
-              <button class="btn-claim-seat text-[10px] font-mono font-bold px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition-colors" data-seat="${s}">
+            ` : ''}
+            ${!isHost && !isLocal && !seatData.peerId ? `
+              <button data-claim-seat="${s.key}" class="w-full px-2 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-[10px] font-mono font-bold text-white transition-all shadow-sm">
                 Claim Seat
               </button>
             ` : ''}
@@ -353,21 +448,22 @@ export class MultiplayerLobbyModal {
     }).join('');
 
     // Attach seat action buttons
-    container.querySelectorAll('.btn-claim-seat').forEach((btn) => {
+    seatsContainer.querySelectorAll('button[data-toggle-ai]').forEach((btn) => {
       btn.onclick = () => {
         sfx.playClick();
-        const seat = btn.getAttribute('data-seat');
-        this.mesh.claimSeat(seat);
-        toast.show(`Claimed seat: ${seatColors[seat].title}`, 'success', 1500);
+        const seat = btn.getAttribute('data-toggle-ai');
+        const currentAI = this.mesh.seats[seat].isAI;
+        this.mesh.configureSeat(seat, !currentAI, currentAI ? null : 'MAX_EV');
+        this.renderSeats();
       };
     });
 
-    container.querySelectorAll('.btn-toggle-seat-ai').forEach((btn) => {
+    seatsContainer.querySelectorAll('button[data-claim-seat]').forEach((btn) => {
       btn.onclick = () => {
         sfx.playClick();
-        const seat = btn.getAttribute('data-seat');
-        const currentAI = this.mesh.seats[seat].isAI;
-        this.mesh.setSeatAI(seat, !currentAI, 'CYCLIC_EXPLOITER');
+        const seat = btn.getAttribute('data-claim-seat');
+        this.mesh.claimSeat(seat, this.mesh.peerName);
+        this.renderSeats();
       };
     });
   }

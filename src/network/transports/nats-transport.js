@@ -10,6 +10,7 @@
 import { BaseTransport } from './base-transport.js';
 import { getNgscAuthenticator } from '../creds/ngs-creds.js';
 import { loadNatsConfig } from '../nats-config.js';
+import { KvRoomRegistry, globalKvRegistry } from '../kv-room-registry.js';
 
 export const NATS_DEFAULT_SERVERS = [
   'wss://connect.ngs.global',
@@ -38,6 +39,8 @@ export class NatsSignalingTransport extends BaseTransport {
     this.trafficListeners = new Set();
     this.lastStatus = { type: 'initial', data: null };
 
+    this.kvRegistry = options.kvRegistry || new KvRoomRegistry({ nc: this.nc, kvStore: options.kvStore });
+
     this._heartbeatTimer = null;
     this._gcTimer = null;
     this.isConnected = false;
@@ -45,6 +48,7 @@ export class NatsSignalingTransport extends BaseTransport {
     // Direct injection of connection for unit testing / mock environments
     if (options.natsClient) {
       this.nc = options.natsClient;
+      this.kvRegistry.nc = this.nc;
       this._initCodec();
       this._initSubscriptions();
       this._startHeartbeat();
@@ -190,6 +194,13 @@ export class NatsSignalingTransport extends BaseTransport {
 
       await this._initSubscriptions();
       this._startHeartbeat();
+
+      // Initialize JetStream KV Registry
+      try {
+        await this.kvRegistry.init(this.nc);
+      } catch (kvErr) {
+        console.warn('[NATS Transport] KV initialization warning:', kvErr.message);
+      }
 
       console.log(`[NATS Transport] Connected to ${this.nc.getServer()} for room ${this.roomCode}`);
     } catch (err) {
@@ -349,6 +360,12 @@ export class NatsSignalingTransport extends BaseTransport {
 
   async leave() {
     this._publishPresence('LEAVE');
+
+    if (this.kvRegistry) {
+      try {
+        await this.kvRegistry.deleteRoom(this.roomCode);
+      } catch (e) {}
+    }
 
     if (this._heartbeatTimer) {
       clearInterval(this._heartbeatTimer);

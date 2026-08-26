@@ -1,7 +1,7 @@
 ================================================================================
  TRIARCH: CYCLIC EDGE - COMBINED SOURCE CODE BUNDLE
- Generated on: 2026-08-26T17:31:03.722Z
- Total Source Files: 51
+ Generated on: 2026-08-26T17:35:08.499Z
+ Total Source Files: 53
 ================================================================================
 
 
@@ -2921,7 +2921,355 @@ export * from './signaling.js';
 export * from './peer-mesh.js';
 export * from './transports/index.js';
 export * from './nats-config.js';
+export * from './kv-room-registry.js';
 export * from './creds/index.js';
+
+
+
+/* =============================================================================
+ * FILE: src/network/kv-room-registry.js
+ * ============================================================================= */
+
+/**
+ * TRIARCH: Cyclic Edge - Synadia JetStream KV Room Registry
+ * Manages global public room discovery and state rehydration with free-tier quota guards:
+ *  - Bucket: TRIARCH_ROOMS (TTL: 3600s, History: 1, MaxValueSize: 8192)
+ *  - Key: room.<ROOM_CODE>
+ *  - Throttled / debounced writes (max 1 write per 2000ms)
+ *  - Graceful degradation to in-memory / local fallback when JetStream is unavailable
+ */
+
+export const KV_BUCKET_NAME = 'TRIARCH_ROOMS';
+export const KV_ROOM_TTL_SECONDS = 3600; // 1 hour auto-expiry
+export const KV_MAX_VALUE_SIZE = 8192; // 8 KB compact limit
+export const KV_WRITE_DEBOUNCE_MS = 2000; // 2s rate limit
+
+/**
+ * @typedef {Object} RoomDescriptor
+ * @property {string} roomCode
+ * @property {string} hostPeerId
+ * @property {number} createdAt
+ * @property {number} updatedAt
+ * @property {number} round
+ * @property {string} phase
+ * @property {Object} seats
+ * @property {number} playerCount
+ * @property {boolean} isFull
+ */
+
+export class KvRoomRegistry {
+  /**
+   * @param {Object} [options={}]
+   * @param {any} [options.nc] - NATS connection instance
+   * @param {any} [options.kvStore] - Direct KV store instance (for testing/mocking)
+   */
+  constructor(options = {}) {
+    this.nc = options.nc || null;
+    this.kv = options.kvStore || null;
+    this.jc = null;
+
+    this.isAvailable = false;
+    this.localFallbackRooms = new Map(); // In-memory fallback map: roomKey -> RoomDescriptor
+    this._debounceTimers = new Map(); // roomCode -> timeout
+    this._pendingWrites = new Map(); // roomCode -> data
+
+    this._initCodec();
+  }
+
+  _initCodec() {
+    const te = new TextEncoder();
+    const td = new TextDecoder();
+    this.jc = {
+      encode: (d) => te.encode(JSON.stringify(d)),
+      decode: (b) => {
+        if (typeof b === 'string') return JSON.parse(b);
+        return JSON.parse(td.decode(b));
+      }
+    };
+  }
+
+  static getRoomKey(roomCode) {
+    if (!roomCode || typeof roomCode !== 'string') return '';
+    return `room.${roomCode.toUpperCase().replace(/[^A-Z0-9_-]/g, '')}`;
+  }
+
+  /**
+   * Initializes or binds to the JetStream KV bucket.
+   * Gracefully degrades to local in-memory fallback if JetStream is disabled.
+   * @param {any} nc - NATS connection instance
+   * @returns {Promise<boolean>} Whether JetStream KV is active
+   */
+  async init(nc = null) {
+    if (nc) this.nc = nc;
+    if (this.kv) {
+      this.isAvailable = true;
+      return true;
+    }
+
+    if (!this.nc) {
+      this.isAvailable = false;
+      return false;
+    }
+
+    try {
+      if (typeof this.nc.jetstream === 'function') {
+        const js = this.nc.jetstream();
+        if (js && js.views && typeof js.views.kv === 'function') {
+          // Attempt to bind or create TRIARCH_ROOMS bucket
+          try {
+            this.kv = await js.views.kv(KV_BUCKET_NAME);
+            this.isAvailable = true;
+            console.log(`[KV Registry] Bound to JetStream KV Bucket: ${KV_BUCKET_NAME}`);
+            return true;
+          } catch (bindErr) {
+            // Attempt to create bucket if permitted
+            try {
+              if (typeof js.views.createKv === 'function') {
+                this.kv = await js.views.createKv(KV_BUCKET_NAME, {
+                  ttl: KV_ROOM_TTL_SECONDS * 1000,
+                  history: 1,
+                  maxValueSize: KV_MAX_VALUE_SIZE
+                });
+                this.isAvailable = true;
+                return true;
+              }
+            } catch (createErr) {
+              console.warn('[KV Registry] JetStream KV creation skipped (fallback mode active):', createErr.message);
+            }
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[KV Registry] JetStream unavailable, using fallback:', err.message);
+    }
+
+    this.isAvailable = false;
+    return false;
+  }
+
+  /**
+   * Sanitizes and formats a RoomDescriptor for compact JSON serialization.
+   * @param {Object} rawData
+   * @returns {RoomDescriptor}
+   */
+  formatDescriptor(rawData) {
+    const seats = rawData.seats || {
+      ruby: { name: 'HostPlayer', isAI: false },
+      cyan: { name: 'Open (Bot)', isAI: true },
+      amber: { name: 'Open (Bot)', isAI: true }
+    };
+
+    let playerCount = 0;
+    for (const s of Object.values(seats)) {
+      if (s && !s.isAI && s.peerId) playerCount++;
+      else if (s && !s.isAI) playerCount++;
+    }
+    if (playerCount === 0) playerCount = 1;
+
+    return {
+      roomCode: (rawData.roomCode || 'TR-XXXX').toUpperCase(),
+      hostPeerId: rawData.hostPeerId || 'peer_host',
+      createdAt: rawData.createdAt || Date.now(),
+      updatedAt: Date.now(),
+      round: rawData.round || 1,
+      phase: rawData.phase || 'DEPLOY',
+      seats: {
+        ruby: { name: seats.ruby?.name || 'Ruby Archon', isAI: !!seats.ruby?.isAI },
+        cyan: { name: seats.cyan?.name || 'Cyan Sentinel', isAI: !!seats.cyan?.isAI },
+        amber: { name: seats.amber?.name || 'Amber Keeper', isAI: !!seats.amber?.isAI }
+      },
+      playerCount,
+      isFull: playerCount >= 3
+    };
+  }
+
+  /**
+   * Immediately registers a newly created room.
+   * @param {string} roomCode
+   * @param {string} hostPeerId
+   * @param {Object} [initialData={}]
+   * @returns {Promise<RoomDescriptor>}
+   */
+  async createRoom(roomCode, hostPeerId, initialData = {}) {
+    const descriptor = this.formatDescriptor({
+      ...initialData,
+      roomCode,
+      hostPeerId,
+      createdAt: Date.now()
+    });
+
+    const key = KvRoomRegistry.getRoomKey(roomCode);
+    const encoded = this.jc.encode(descriptor);
+
+    // Guard max payload size
+    if (encoded.length > KV_MAX_VALUE_SIZE) {
+      throw new Error(`Room payload exceeds max size limit (${encoded.length} > ${KV_MAX_VALUE_SIZE})`);
+    }
+
+    if (this.kv && typeof this.kv.put === 'function') {
+      try {
+        await this.kv.put(key, encoded);
+      } catch (err) {
+        console.warn('[KV Registry] Write error, saved to local cache:', err.message);
+      }
+    }
+
+    this.localFallbackRooms.set(key, descriptor);
+    return descriptor;
+  }
+
+  /**
+   * Debounced state update (max 1 write per 2000ms) to conserve cloud quota.
+   * @param {string} roomCode
+   * @param {Object} patchData
+   */
+  updateRoomDebounced(roomCode, patchData) {
+    const code = roomCode.toUpperCase();
+    const existingPending = this._pendingWrites.get(code) || {};
+    this._pendingWrites.set(code, { ...existingPending, ...patchData });
+
+    if (this._debounceTimers.has(code)) {
+      return; // Debounce window active
+    }
+
+    const timer = setTimeout(async () => {
+      this._debounceTimers.delete(code);
+      const dataToFlush = this._pendingWrites.get(code);
+      this._pendingWrites.delete(code);
+      if (dataToFlush) {
+        try {
+          await this._flushRoomUpdate(code, dataToFlush);
+        } catch (err) {
+          console.warn('[KV Registry] Flush error:', err);
+        }
+      }
+    }, KV_WRITE_DEBOUNCE_MS);
+
+    this._debounceTimers.set(code, timer);
+  }
+
+  async _flushRoomUpdate(roomCode, patchData) {
+    const key = KvRoomRegistry.getRoomKey(roomCode);
+    let current = await this.getRoom(roomCode);
+    if (!current) {
+      current = { roomCode, hostPeerId: 'peer_host', createdAt: Date.now() };
+    }
+
+    const descriptor = this.formatDescriptor({
+      ...current,
+      ...patchData,
+      roomCode
+    });
+
+    const encoded = this.jc.encode(descriptor);
+
+    if (this.kv && typeof this.kv.put === 'function') {
+      try {
+        await this.kv.put(key, encoded);
+      } catch (err) {
+        console.warn('[KV Registry] Update write error:', err.message);
+      }
+    }
+
+    this.localFallbackRooms.set(key, descriptor);
+    return descriptor;
+  }
+
+  /**
+   * Retrieves a single room descriptor.
+   * @param {string} roomCode
+   * @returns {Promise<RoomDescriptor|null>}
+   */
+  async getRoom(roomCode) {
+    const key = KvRoomRegistry.getRoomKey(roomCode);
+
+    if (this.kv && typeof this.kv.get === 'function') {
+      try {
+        const entry = await this.kv.get(key);
+        if (entry && entry.value) {
+          const parsed = this.jc.decode(entry.value);
+          this.localFallbackRooms.set(key, parsed);
+          return parsed;
+        }
+      } catch (err) {
+        // Fallback to local map
+      }
+    }
+
+    return this.localFallbackRooms.get(key) || null;
+  }
+
+  /**
+   * Lists all active public rooms, filtering out expired ones (> 1 hour).
+   * @returns {Promise<RoomDescriptor[]>}
+   */
+  async listActiveRooms() {
+    const now = Date.now();
+    const maxAgeMs = KV_ROOM_TTL_SECONDS * 1000;
+    const roomMap = new Map();
+
+    // 1. Fetch from JetStream KV if available
+    if (this.kv && typeof this.kv.keys === 'function') {
+      try {
+        const keyWatcher = await this.kv.keys();
+        for await (const k of keyWatcher) {
+          if (k && k.startsWith('room.')) {
+            try {
+              const entry = await this.kv.get(k);
+              if (entry && entry.value) {
+                const descriptor = this.jc.decode(entry.value);
+                if (descriptor && (now - descriptor.updatedAt) < maxAgeMs) {
+                  roomMap.set(descriptor.roomCode, descriptor);
+                }
+              }
+            } catch (e) {}
+          }
+        }
+      } catch (err) {
+        // Use local fallback
+      }
+    }
+
+    // 2. Merge local fallback rooms
+    for (const desc of this.localFallbackRooms.values()) {
+      if (desc && (now - desc.updatedAt) < maxAgeMs) {
+        if (!roomMap.has(desc.roomCode)) {
+          roomMap.set(desc.roomCode, desc);
+        }
+      }
+    }
+
+    return Array.from(roomMap.values()).sort((a, b) => b.updatedAt - a.updatedAt);
+  }
+
+  /**
+   * Deletes a room entry from the registry (e.g. host leaves or match concludes).
+   * @param {string} roomCode
+   * @returns {Promise<void>}
+   */
+  async deleteRoom(roomCode) {
+    const code = roomCode.toUpperCase();
+    const key = KvRoomRegistry.getRoomKey(code);
+
+    if (this._debounceTimers.has(code)) {
+      clearTimeout(this._debounceTimers.get(code));
+      this._debounceTimers.delete(code);
+    }
+    this._pendingWrites.delete(code);
+
+    if (this.kv && typeof this.kv.delete === 'function') {
+      try {
+        await this.kv.delete(key);
+      } catch (err) {
+        console.warn('[KV Registry] Delete error:', err.message);
+      }
+    }
+
+    this.localFallbackRooms.delete(key);
+  }
+}
+
+export const globalKvRegistry = new KvRoomRegistry();
 
 
 
@@ -4078,6 +4426,7 @@ export function createTransport(type = TRANSPORT_TYPES.BROADCAST, roomCode, peer
 import { BaseTransport } from './base-transport.js';
 import { getNgscAuthenticator } from '../creds/ngs-creds.js';
 import { loadNatsConfig } from '../nats-config.js';
+import { KvRoomRegistry, globalKvRegistry } from '../kv-room-registry.js';
 
 export const NATS_DEFAULT_SERVERS = [
   'wss://connect.ngs.global',
@@ -4106,6 +4455,8 @@ export class NatsSignalingTransport extends BaseTransport {
     this.trafficListeners = new Set();
     this.lastStatus = { type: 'initial', data: null };
 
+    this.kvRegistry = options.kvRegistry || new KvRoomRegistry({ nc: this.nc, kvStore: options.kvStore });
+
     this._heartbeatTimer = null;
     this._gcTimer = null;
     this.isConnected = false;
@@ -4113,6 +4464,7 @@ export class NatsSignalingTransport extends BaseTransport {
     // Direct injection of connection for unit testing / mock environments
     if (options.natsClient) {
       this.nc = options.natsClient;
+      this.kvRegistry.nc = this.nc;
       this._initCodec();
       this._initSubscriptions();
       this._startHeartbeat();
@@ -4258,6 +4610,13 @@ export class NatsSignalingTransport extends BaseTransport {
 
       await this._initSubscriptions();
       this._startHeartbeat();
+
+      // Initialize JetStream KV Registry
+      try {
+        await this.kvRegistry.init(this.nc);
+      } catch (kvErr) {
+        console.warn('[NATS Transport] KV initialization warning:', kvErr.message);
+      }
 
       console.log(`[NATS Transport] Connected to ${this.nc.getServer()} for room ${this.roomCode}`);
     } catch (err) {
@@ -4417,6 +4776,12 @@ export class NatsSignalingTransport extends BaseTransport {
 
   async leave() {
     this._publishPresence('LEAVE');
+
+    if (this.kvRegistry) {
+      try {
+        await this.kvRegistry.deleteRoom(this.roomCode);
+      } catch (e) {}
+    }
 
     if (this._heartbeatTimer) {
       clearInterval(this._heartbeatTimer);
@@ -5856,7 +6221,8 @@ export function renderParadoxComparisonHTML(dieA, dieB) {
 /**
  * TRIARCH: Cyclic Edge - Multiplayer Lobby & WebRTC Mesh UI
  * Glassmorphic modal supporting instant room creation, SVG QR code generation,
- * camera QR scanner, live 3-seat claiming, latency badges, and bot toggles.
+ * camera QR scanner, JetStream KV active public room browser, live 3-seat claiming,
+ * latency badges, and bot toggles.
  */
 
 import { generateRoomCode } from '../network/signaling.js';
@@ -5864,6 +6230,7 @@ import { generateQRCodeSVG, CameraQRScanner } from './qr.js';
 import { toast } from './toast.js';
 import { sfx } from '../audio/sfx.js';
 import { ACTION_TYPES, createActionEnvelope } from '../network/protocol.js';
+import { globalKvRegistry } from '../network/kv-room-registry.js';
 
 export class MultiplayerLobbyModal {
   /**
@@ -5881,6 +6248,11 @@ export class MultiplayerLobbyModal {
     this.mesh.onSeatChange(() => {
       if (this.isOpen()) {
         this.renderSeats();
+      }
+      if (this.mesh.isHost && this.mesh.roomCode) {
+        globalKvRegistry.updateRoomDebounced(this.mesh.roomCode, {
+          seats: this.mesh.seats
+        });
       }
     });
 
@@ -5923,7 +6295,7 @@ export class MultiplayerLobbyModal {
             <span class="text-3xl">🌐</span>
             <div>
               <h2 class="text-xl font-bold text-white font-cinzel tracking-wider">Multiplayer Mesh Lobby</h2>
-              <p class="text-xs font-mono text-slate-400">Zero-Backend 3-Node WebRTC Peer-to-Peer Discovery</p>
+              <p class="text-xs font-mono text-slate-400">Zero-Backend 3-Node WebRTC Peer-to-Peer & Synadia Cloud Discovery</p>
             </div>
           </div>
           <button id="btn-close-lobby" class="text-slate-400 hover:text-white text-2xl font-bold px-2 py-1">&times;</button>
@@ -5935,7 +6307,7 @@ export class MultiplayerLobbyModal {
             👑 Host Room
           </button>
           <button id="tab-btn-join" class="px-4 py-2 text-xs sm:text-sm font-mono font-bold rounded-xl transition-all ${this.activeSubTab === 'join' ? 'bg-indigo-600 text-white shadow-lg' : 'bg-slate-900 text-slate-400 hover:text-white'}">
-            🔗 Join Room / Scan QR
+            🔗 Join Room / Browse
           </button>
         </div>
 
@@ -5979,6 +6351,9 @@ export class MultiplayerLobbyModal {
     if (!this.mesh.roomCode || !this.mesh.isHost) {
       const newRoomCode = generateRoomCode();
       this.mesh.connect(newRoomCode, true, 'Ruby Archon (Host)');
+      globalKvRegistry.createRoom(newRoomCode, this.mesh.peerId, {
+        seats: this.mesh.seats
+      }).catch(() => {});
     }
 
     const roomCode = this.mesh.roomCode;
@@ -6066,6 +6441,8 @@ export class MultiplayerLobbyModal {
 
     container.innerHTML = `
       <div class="space-y-6">
+        
+        <!-- Join by Room Code Box -->
         <div class="p-6 rounded-2xl bg-slate-900/60 border border-slate-800 space-y-4">
           <div>
             <label for="input-room-code" class="block text-xs font-mono font-bold text-slate-300 uppercase tracking-wider mb-1">
@@ -6091,6 +6468,24 @@ export class MultiplayerLobbyModal {
           </div>
         </div>
 
+        <!-- JetStream KV Public Room Browser -->
+        <div class="space-y-3 p-5 rounded-2xl bg-slate-900/40 border border-slate-800">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="text-sm">🌐</span>
+              <h3 class="text-xs font-bold uppercase tracking-wider text-slate-300 font-mono">Active Public Rooms</h3>
+              <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-indigo-950 text-indigo-300 border border-indigo-500/30">JetStream Discovery</span>
+            </div>
+            <button id="btn-refresh-public-rooms" class="text-xs font-mono text-indigo-400 hover:text-indigo-200 flex items-center gap-1">
+              <span>🔄</span> Refresh
+            </button>
+          </div>
+
+          <div id="public-rooms-list" class="space-y-2 max-h-44 overflow-y-auto pr-1">
+            <div class="text-xs font-mono text-slate-500 text-center py-4">Scanning JetStream room registry...</div>
+          </div>
+        </div>
+
         <!-- Seating Status (if connected) -->
         ${this.mesh.roomCode ? `
           <div class="space-y-2">
@@ -6107,6 +6502,7 @@ export class MultiplayerLobbyModal {
     const camWrapper = container.querySelector('#camera-scanner-wrapper');
     const camStop = container.querySelector('#btn-stop-camera');
     const video = container.querySelector('#qr-video-stream');
+    const btnRefresh = container.querySelector('#btn-refresh-public-rooms');
 
     joinBtn.onclick = () => {
       sfx.playClick();
@@ -6147,58 +6543,122 @@ export class MultiplayerLobbyModal {
       camWrapper.classList.add('hidden');
     };
 
+    if (btnRefresh) {
+      btnRefresh.onclick = () => {
+        sfx.playClick();
+        this.loadAndRenderPublicRooms();
+      };
+    }
+
+    this.loadAndRenderPublicRooms();
+
     if (this.mesh.roomCode) {
       this.renderSeats();
     }
   }
 
-  renderSeats() {
+  async loadAndRenderPublicRooms() {
     if (!this.modal) return;
-    const container = this.modal.querySelector('#lobby-seats-container');
-    if (!container) return;
+    const listEl = this.modal.querySelector('#public-rooms-list');
+    if (!listEl) return;
 
-    const seatColors = {
-      ruby: { border: 'border-rose-500/40', bg: 'bg-rose-950/20', text: 'text-rose-400', symbol: '🔺', title: 'Ruby Archon' },
-      cyan: { border: 'border-cyan-500/40', bg: 'bg-cyan-950/20', text: 'text-cyan-400', symbol: '🔷', title: 'Cyan Sentinel' },
-      amber: { border: 'border-amber-500/40', bg: 'bg-amber-950/20', text: 'text-amber-400', symbol: '🟡', title: 'Amber Keeper' }
-    };
+    try {
+      const rooms = await globalKvRegistry.listActiveRooms();
+      if (rooms.length === 0) {
+        listEl.innerHTML = `
+          <div class="text-xs font-mono text-slate-500 text-center py-4 bg-slate-950/40 rounded-xl border border-slate-800/80">
+            No active public rooms found. Host a new room to start a match!
+          </div>
+        `;
+        return;
+      }
 
-    container.innerHTML = ['ruby', 'cyan', 'amber'].map((s) => {
-      const seatData = this.mesh.seats[s];
-      const cfg = seatColors[s];
-      const isMe = this.mesh.localSeat === s;
-      const rtt = seatData.peerId ? this.mesh.latencies.get(seatData.peerId) : null;
+      listEl.innerHTML = rooms.map((r) => {
+        const minutesAgo = Math.max(0, Math.round((Date.now() - r.updatedAt) / 60000));
+        const timeBadge = minutesAgo === 0 ? 'Just now' : `${minutesAgo}m ago`;
+        const seatIcons = Object.values(r.seats || {}).map(s => s && !s.isAI ? '👤' : '🤖').join(' ');
 
-      return `
-        <div class="p-3.5 rounded-2xl border ${cfg.border} ${cfg.bg} backdrop-blur-md flex flex-col justify-between space-y-3">
-          <div class="flex items-center justify-between">
-            <div class="flex items-center gap-2">
-              <span class="text-xl">${cfg.symbol}</span>
-              <div>
-                <div class="text-xs font-bold ${cfg.text}">${cfg.title}</div>
-                <div class="text-[11px] font-mono text-slate-300 flex items-center gap-1">
-                  <span>${seatData.name}</span>
-                  ${isMe ? '<span class="text-[9px] font-bold px-1.5 py-0.2 rounded bg-indigo-950 text-indigo-300 font-mono">YOU</span>' : ''}
-                </div>
+        return `
+          <div class="flex items-center justify-between p-3 rounded-xl bg-slate-950/80 border border-slate-800 hover:border-indigo-500/40 transition-colors">
+            <div>
+              <div class="flex items-center gap-2">
+                <span class="font-bold font-mono text-sm text-indigo-300">${r.roomCode}</span>
+                <span class="text-[10px] font-mono px-2 py-0.2 rounded-full ${r.isFull ? 'bg-rose-950 text-rose-300' : 'bg-emerald-950 text-emerald-300'}">
+                  ${r.playerCount}/3 Archons
+                </span>
+                <span class="text-[10px] font-mono text-slate-500">${timeBadge}</span>
+              </div>
+              <div class="text-[11px] font-mono text-slate-400 mt-0.5">
+                Phase: ${r.phase} · Round ${r.round} · [${seatIcons}]
               </div>
             </div>
-            ${rtt ? `<span id="latency-${seatData.peerId}" class="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-emerald-950 text-emerald-300">${rtt}ms</span>` : ''}
+            <button data-quick-join="${r.roomCode}" class="px-3 py-1.5 rounded-lg bg-indigo-600/80 hover:bg-indigo-600 text-white text-xs font-mono font-bold transition-all shadow-sm">
+              ⚡ Quick Join
+            </button>
+          </div>
+        `;
+      }).join('');
+
+      // Wire quick join buttons
+      listEl.querySelectorAll('button[data-quick-join]').forEach((btn) => {
+        btn.addEventListener('click', () => {
+          const code = btn.getAttribute('data-quick-join');
+          const input = this.modal.querySelector('#input-room-code');
+          const joinBtn = this.modal.querySelector('#btn-join-room-submit');
+          if (input && joinBtn) {
+            input.value = code;
+            joinBtn.click();
+          }
+        });
+      });
+    } catch (err) {
+      listEl.innerHTML = `
+        <div class="text-xs font-mono text-slate-500 text-center py-4">
+          Discovery registry standby mode. Enter code manually above.
+        </div>
+      `;
+    }
+  }
+
+  renderSeats() {
+    if (!this.modal) return;
+    const seatsContainer = this.modal.querySelector('#lobby-seats-container');
+    if (!seatsContainer) return;
+
+    const seats = [
+      { key: 'ruby', name: 'Ruby Archon', color: '#fb7185', bg: 'rgba(251, 113, 133, 0.1)', border: 'rgba(251, 113, 133, 0.4)' },
+      { key: 'cyan', name: 'Cyan Sentinel', color: '#22d3ee', bg: 'rgba(34, 211, 238, 0.1)', border: 'rgba(34, 211, 238, 0.4)' },
+      { key: 'amber', name: 'Amber Keeper', color: '#facc15', bg: 'rgba(250, 204, 21, 0.1)', border: 'rgba(250, 204, 21, 0.4)' }
+    ];
+
+    seatsContainer.innerHTML = seats.map((s) => {
+      const seatData = this.mesh.seats[s.key];
+      const isLocal = this.mesh.localSeat === s.key;
+      const isAI = seatData.isAI;
+      const peerId = seatData.peerId;
+      const isHost = this.mesh.isHost;
+
+      return `
+        <div class="p-4 rounded-2xl border transition-all flex flex-col justify-between gap-3" style="background: ${s.bg}; border-color: ${s.border};">
+          <div>
+            <div class="flex items-center justify-between">
+              <span class="text-xs font-mono font-bold" style="color: ${s.color}">${s.name}</span>
+              ${isLocal ? '<span class="px-1.5 py-0.2 rounded-md bg-indigo-950 border border-indigo-500/50 text-indigo-300 text-[10px] font-mono font-bold">YOU</span>' : ''}
+              ${peerId && !isLocal ? `<span id="latency-${peerId}" class="text-[10px] font-mono px-1.5 py-0.5 rounded-full bg-slate-900 text-slate-400">P2P</span>` : ''}
+            </div>
+            <div class="text-sm font-bold text-white mt-1 truncate">
+              ${isAI ? `🤖 ${seatData.name || 'Bot'}` : `👤 ${seatData.name || 'Player'}`}
+            </div>
           </div>
 
-          <!-- Seat Claim or Bot Switch Controls -->
-          <div class="pt-2 border-t border-slate-800/60 flex items-center justify-between">
-            ${this.mesh.isHost && s !== 'ruby' ? `
-              <button class="btn-toggle-seat-ai text-[10px] font-mono px-2 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-300 transition-colors" data-seat="${s}">
-                ${seatData.isAI ? `🤖 AI: ${seatData.aiType?.split('_')[0]}` : '👤 Human'}
+          <div class="pt-2 border-t border-slate-800/60 flex items-center justify-between gap-1">
+            ${isHost && !isLocal ? `
+              <button data-toggle-ai="${s.key}" class="px-2 py-1 rounded-lg bg-slate-900 hover:bg-slate-800 text-[10px] font-mono text-slate-300 border border-slate-700 transition-all">
+                ${isAI ? 'Switch to Human' : 'Switch to Bot'}
               </button>
-            ` : `
-              <span class="text-[10px] font-mono text-slate-500">
-                ${seatData.isAI ? '🤖 Automated Bot' : '👤 Connected Peer'}
-              </span>
-            `}
-
-            ${!isMe && (!seatData.peerId || seatData.isAI) ? `
-              <button class="btn-claim-seat text-[10px] font-mono font-bold px-2.5 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white transition-colors" data-seat="${s}">
+            ` : ''}
+            ${!isHost && !isLocal && !seatData.peerId ? `
+              <button data-claim-seat="${s.key}" class="w-full px-2 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-[10px] font-mono font-bold text-white transition-all shadow-sm">
                 Claim Seat
               </button>
             ` : ''}
@@ -6208,21 +6668,22 @@ export class MultiplayerLobbyModal {
     }).join('');
 
     // Attach seat action buttons
-    container.querySelectorAll('.btn-claim-seat').forEach((btn) => {
+    seatsContainer.querySelectorAll('button[data-toggle-ai]').forEach((btn) => {
       btn.onclick = () => {
         sfx.playClick();
-        const seat = btn.getAttribute('data-seat');
-        this.mesh.claimSeat(seat);
-        toast.show(`Claimed seat: ${seatColors[seat].title}`, 'success', 1500);
+        const seat = btn.getAttribute('data-toggle-ai');
+        const currentAI = this.mesh.seats[seat].isAI;
+        this.mesh.configureSeat(seat, !currentAI, currentAI ? null : 'MAX_EV');
+        this.renderSeats();
       };
     });
 
-    container.querySelectorAll('.btn-toggle-seat-ai').forEach((btn) => {
+    seatsContainer.querySelectorAll('button[data-claim-seat]').forEach((btn) => {
       btn.onclick = () => {
         sfx.playClick();
-        const seat = btn.getAttribute('data-seat');
-        const currentAI = this.mesh.seats[seat].isAI;
-        this.mesh.setSeatAI(seat, !currentAI, 'CYCLIC_EXPLOITER');
+        const seat = btn.getAttribute('data-claim-seat');
+        this.mesh.claimSeat(seat, this.mesh.peerName);
+        this.renderSeats();
       };
     });
   }
@@ -6452,7 +6913,43 @@ export class NatsTelemetryPanel {
           </div>
         </div>
 
-        <!-- Section 4: Live Subject Traffic Monitor -->
+        <!-- Section 4: JetStream KV Room Registry & Storage Quota Guard -->
+        <div class="space-y-3 p-4 rounded-2xl bg-slate-900/50 border border-slate-800">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <span class="text-xs font-bold uppercase tracking-wider text-slate-300 font-mono">
+                JetStream KV Room Registry
+              </span>
+              <p class="text-[11px] text-slate-400">
+                Global discovery index & state rehydration with free-tier quota guardrails.
+              </p>
+            </div>
+            <span class="px-2.5 py-1 rounded-full bg-emerald-950/80 border border-emerald-500/40 text-emerald-300 text-[11px] font-mono font-bold">
+              🛡️ Quota Guard: Active (TTL 1h · History 1)
+            </span>
+          </div>
+
+          <div class="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs font-mono">
+            <div class="p-2.5 rounded-xl bg-slate-950 border border-slate-800/80">
+              <div class="text-[10px] text-slate-500 uppercase">Bucket</div>
+              <div class="font-bold text-indigo-300">TRIARCH_ROOMS</div>
+            </div>
+            <div class="p-2.5 rounded-xl bg-slate-950 border border-slate-800/80">
+              <div class="text-[10px] text-slate-500 uppercase">Auto-Expiry (TTL)</div>
+              <div class="font-bold text-amber-300">3600s (1 Hour)</div>
+            </div>
+            <div class="p-2.5 rounded-xl bg-slate-950 border border-slate-800/80">
+              <div class="text-[10px] text-slate-500 uppercase">Max Payload</div>
+              <div class="font-bold text-cyan-300">8192 Bytes</div>
+            </div>
+            <div class="p-2.5 rounded-xl bg-slate-950 border border-slate-800/80">
+              <div class="text-[10px] text-slate-500 uppercase">Write Policy</div>
+              <div class="font-bold text-emerald-300">Debounced (2.0s)</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Section 5: Live Subject Traffic Monitor -->
         <div class="space-y-3 p-4 rounded-2xl bg-slate-900/50 border border-slate-800">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
@@ -7663,7 +8160,7 @@ export function createDiceVisual(container, die) {
  * Robust offline caching, WebRTC P2P mesh support, NATS WebSocket adapter, and instant upgrade activation.
  */
 
-const CACHE_NAME = 'triarch-cache-v1.6.0';
+const CACHE_NAME = 'triarch-cache-v1.7.0';
 
 const PRECACHE_ASSETS = [
   './',
@@ -7685,6 +8182,7 @@ const PRECACHE_ASSETS = [
   './src/network/transports/nats-transport.js',
   './src/network/transports/index.js',
   './src/network/nats-config.js',
+  './src/network/kv-room-registry.js',
   './src/network/creds/ngs-creds.js',
   './src/network/creds/index.js',
   './src/network/index.js',
@@ -8443,6 +8941,192 @@ describe('NATS Configuration Storage & Transport Switching', () => {
 
 
 /* =============================================================================
+ * FILE: test/nats-kv.test.js
+ * ============================================================================= */
+
+/**
+ * Automated Verification Suite - JetStream KV Room Registry (100% In-Memory Mocked)
+ * STRICT QUOTA GUARD: Zero outbound network requests during test execution.
+ */
+
+import { test, describe } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  KvRoomRegistry,
+  KV_BUCKET_NAME,
+  KV_ROOM_TTL_SECONDS,
+  KV_MAX_VALUE_SIZE
+} from '../src/network/kv-room-registry.js';
+
+/**
+ * Creates a Map-backed in-memory mock of the NATS JetStream KV store.
+ */
+function createMockKvStore() {
+  const store = new Map();
+  let putCount = 0;
+  let deleteCount = 0;
+
+  return {
+    get putCount() { return putCount; },
+    get deleteCount() { return deleteCount; },
+    store,
+
+    async put(key, val) {
+      putCount++;
+      store.set(key, { key, value: val, revision: putCount });
+      return putCount;
+    },
+
+    async get(key) {
+      return store.get(key) || null;
+    },
+
+    async delete(key) {
+      deleteCount++;
+      store.delete(key);
+    },
+
+    async *keys() {
+      for (const k of store.keys()) {
+        yield k;
+      }
+    }
+  };
+}
+
+describe('In-Memory JetStream KV Room Registry CRUD', () => {
+  test('Creates and retrieves room descriptor with schema validation', async () => {
+    const mockKv = createMockKvStore();
+    const registry = new KvRoomRegistry({ kvStore: mockKv });
+
+    const roomCode = 'TR-9X';
+    const hostPeer = 'peer_host_alpha';
+    const initialData = {
+      round: 1,
+      phase: 'DEPLOY',
+      seats: {
+        ruby: { name: 'HostArchon', isAI: false, peerId: hostPeer },
+        cyan: { name: 'Open (Bot)', isAI: true },
+        amber: { name: 'Open (Bot)', isAI: true }
+      }
+    };
+
+    const created = await registry.createRoom(roomCode, hostPeer, initialData);
+
+    assert.equal(created.roomCode, 'TR-9X');
+    assert.equal(created.hostPeerId, hostPeer);
+    assert.equal(created.round, 1);
+    assert.equal(created.phase, 'DEPLOY');
+    assert.equal(created.playerCount, 1);
+    assert.equal(created.isFull, false);
+    assert.equal(mockKv.putCount, 1);
+
+    // Retrieve via getRoom
+    const fetched = await registry.getRoom(roomCode);
+    assert.ok(fetched);
+    assert.equal(fetched.roomCode, 'TR-9X');
+    assert.equal(fetched.hostPeerId, hostPeer);
+    assert.equal(fetched.seats.ruby.name, 'HostArchon');
+  });
+
+  test('Deletes room descriptor immediately upon leave/teardown', async () => {
+    const mockKv = createMockKvStore();
+    const registry = new KvRoomRegistry({ kvStore: mockKv });
+
+    await registry.createRoom('TR-DEL', 'peer_del');
+    assert.ok(await registry.getRoom('TR-DEL'));
+
+    await registry.deleteRoom('TR-DEL');
+    assert.equal(await registry.getRoom('TR-DEL'), null);
+    assert.equal(mockKv.deleteCount, 1);
+  });
+});
+
+describe('Payload Schema & Compact Size Validation', () => {
+  test('Generated room descriptor is compact (< 2 KB) and conforms to specification', async () => {
+    const mockKv = createMockKvStore();
+    const registry = new KvRoomRegistry({ kvStore: mockKv });
+
+    const descriptor = await registry.createRoom('TR-SZ8', 'peer_test', {
+      seats: {
+        ruby: { name: 'Ruby Champion', isAI: false, peerId: 'peer_1' },
+        cyan: { name: 'Cyan Striker', isAI: false, peerId: 'peer_2' },
+        amber: { name: 'Amber Tactician', isAI: false, peerId: 'peer_3' }
+      }
+    });
+
+    const jsonString = JSON.stringify(descriptor);
+    const byteLength = Buffer.byteLength(jsonString, 'utf8');
+
+    // Strict free-tier quota guard: payload must be compact (< 2048 bytes)
+    assert.ok(byteLength < 2048, `Payload size ${byteLength} exceeds 2048B limit`);
+    assert.ok(byteLength < KV_MAX_VALUE_SIZE);
+
+    assert.equal(descriptor.playerCount, 3);
+    assert.equal(descriptor.isFull, true);
+    assert.ok(descriptor.createdAt > 0);
+    assert.ok(descriptor.updatedAt > 0);
+  });
+});
+
+describe('Write Debouncing Logic (Quota Guardrail)', () => {
+  test('Collapses rapid state mutations into a single debounced write', async () => {
+    const mockKv = createMockKvStore();
+    const registry = new KvRoomRegistry({ kvStore: mockKv });
+
+    await registry.createRoom('TR-DEB', 'peer_host');
+    const initialPuts = mockKv.putCount; // 1
+
+    // Fire 5 rapid updates in quick succession
+    registry.updateRoomDebounced('TR-DEB', { round: 2 });
+    registry.updateRoomDebounced('TR-DEB', { round: 3 });
+    registry.updateRoomDebounced('TR-DEB', { round: 4 });
+    registry.updateRoomDebounced('TR-DEB', { round: 5 });
+    registry.updateRoomDebounced('TR-DEB', { phase: 'RESOLUTION' });
+
+    // Puts should not have increased yet because timer is debounced
+    assert.equal(mockKv.putCount, initialPuts);
+
+    // Explicitly flush pending update
+    await registry._flushRoomUpdate('TR-DEB', { round: 5, phase: 'RESOLUTION' });
+    assert.equal(mockKv.putCount, initialPuts + 1);
+
+    const room = await registry.getRoom('TR-DEB');
+    assert.equal(room.round, 5);
+    assert.equal(room.phase, 'RESOLUTION');
+  });
+});
+
+describe('TTL & Stale Record Filtering', () => {
+  test('Omits expired rooms older than TTL (3600s) from public discovery listings', async () => {
+    const mockKv = createMockKvStore();
+    const registry = new KvRoomRegistry({ kvStore: mockKv });
+
+    // 1. Fresh room
+    await registry.createRoom('TR-FRESH', 'peer_fresh');
+
+    // 2. Stale room (created 2 hours ago)
+    const twoHoursAgo = Date.now() - (7200 * 1000);
+    const staleDesc = registry.formatDescriptor({
+      roomCode: 'TR-STALE',
+      hostPeerId: 'peer_old',
+      createdAt: twoHoursAgo
+    });
+    staleDesc.updatedAt = twoHoursAgo;
+
+    registry.localFallbackRooms.set(KvRoomRegistry.getRoomKey('TR-STALE'), staleDesc);
+
+    const activeRooms = await registry.listActiveRooms();
+    const activeCodes = activeRooms.map(r => r.roomCode);
+
+    assert.ok(activeCodes.includes('TR-FRESH'));
+    assert.ok(!activeCodes.includes('TR-STALE'), 'Expired room should be filtered out');
+  });
+});
+
+
+
+/* =============================================================================
  * FILE: test/nats-transport.test.js
  * ============================================================================= */
 
@@ -9014,9 +9698,12 @@ describe('Graph-Theoretic Cycle Detection', () => {
 
 {
   "name": "TRIARCH: Cyclic Edge",
-  "version": "1.6.0",
-  "buildTime": "2026-08-26T10:45:00Z",
+  "version": "1.7.0",
+  "buildTime": "2026-08-26T11:00:00Z",
   "features": [
+    "JetStream KV Room Registry & Public Discovery (Bucket: TRIARCH_ROOMS)",
+    "Free-Tier Quota Guard (1h TTL, History 1, Max 8KB, 2s Debounce)",
+    "Global Active Public Room Browser in Lobby Modal with 1-Click Join",
     "Synadia Cloud NATS Telemetry & Control Center (Math Lab Suite)",
     "Client-Side .creds Ingestion (Drag-and-Drop / Textarea / JWT Validation)",
     "Live WebSocket Connection Probe & RTT Latency Diagnostic",

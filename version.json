@@ -1,8 +1,11 @@
 {
   "name": "TRIARCH: Cyclic Edge",
-  "version": "1.6.0",
-  "buildTime": "2026-08-26T10:45:00Z",
+  "version": "1.7.0",
+  "buildTime": "2026-08-26T11:00:00Z",
   "features": [
+    "JetStream KV Room Registry & Public Discovery (Bucket: TRIARCH_ROOMS)",
+    "Free-Tier Quota Guard (1h TTL, History 1, Max 8KB, 2s Debounce)",
+    "Global Active Public Room Browser in Lobby Modal with 1-Click Join",
     "Synadia Cloud NATS Telemetry & Control Center (Math Lab Suite)",
     "Client-Side .creds Ingestion (Drag-and-Drop / Textarea / JWT Validation)",
     "Live WebSocket Connection Probe & RTT Latency Diagnostic",
