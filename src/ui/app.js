@@ -2,6 +2,7 @@
  * TRIARCH: Cyclic Edge - Master Application Controller
  * Connects Game Engine, Math Core, Visualizers, Procedural Web Audio,
  * PWA Lifecycle, WebRTC P2P Mesh, 3D Board View & Live Odds Inspector.
+ * Features Stealth ModeController for UI Decoupling (Clean Tabletop vs Math Lab Suite).
  */
 
 import { TRIARCH_STANDARD, DICE_PRESETS, Die } from '../math/dice.js';
@@ -46,10 +47,14 @@ class TriarchApp {
     this.graphRenderer = null;
     this.currentBuildVersion = null;
 
+    // Stealth Math Lab Mode State (defaults to false for clean tabletop experience)
+    this.isLabMode = localStorage.getItem('triarch_lab_mode') === 'true';
+
     this.init();
   }
 
   init() {
+    this.setupModeController();
     this.setupPWA();
     this.setupAppUpdates();
     this.setupTabs();
@@ -74,12 +79,20 @@ class TriarchApp {
     const params = new URLSearchParams(window.location.search);
     const roomParam = params.get('room');
     const tabParam = params.get('tab');
+    const labParam = params.get('lab');
+
+    if (labParam === '1' || labParam === 'true') {
+      this.setLabMode(true, false);
+    }
 
     if (roomParam) {
       setTimeout(() => {
         this.lobbyModal.open(roomParam.toUpperCase());
       }, 400);
     } else if (tabParam && ['arena', 'simulator', 'paradox', 'codex'].includes(tabParam)) {
+      if (tabParam !== 'arena') {
+        this.setLabMode(true, false);
+      }
       this.switchTab(tabParam);
     }
 
@@ -89,6 +102,123 @@ class TriarchApp {
         tour.start();
       }, 600);
     }
+  }
+
+  /* ---------------- Mode Controller (Clean Tabletop vs Math Lab) ---------------- */
+  setupModeController() {
+    // Apply initial state to DOM
+    this.setLabMode(this.isLabMode, false);
+
+    // 1. Desktop Hotkey Listeners (Ctrl+Shift+M, Cmd+Shift+M, backtick ` / ~)
+    window.addEventListener('keydown', (e) => {
+      // Don't trigger if user is actively typing in an input field
+      const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
+      if (activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select') {
+        return;
+      }
+
+      const isModifierM = (e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'M' || e.key === 'm');
+      const isBacktick = e.key === '`' || e.key === '~';
+
+      if (isModifierM || isBacktick) {
+        e.preventDefault();
+        this.toggleLabMode();
+      }
+    });
+
+    // 2. Banner Exit Button
+    const btnExitLab = document.getElementById('btn-exit-lab-mode');
+    if (btnExitLab) {
+      btnExitLab.addEventListener('click', () => {
+        this.setLabMode(false);
+      });
+    }
+
+    // 3. Mobile Stealth Gesture: 2-Second Long-Press on Brand Logo
+    const brandLogo = document.getElementById('brand-logo');
+    if (brandLogo) {
+      let pressTimer = null;
+      let isLongPress = false;
+
+      const startPress = () => {
+        isLongPress = false;
+        brandLogo.style.transform = 'scale(0.96)';
+        pressTimer = setTimeout(() => {
+          isLongPress = true;
+          brandLogo.style.transform = '';
+          this.toggleLabMode();
+        }, 2000);
+      };
+
+      const cancelPress = () => {
+        brandLogo.style.transform = '';
+        if (pressTimer) {
+          clearTimeout(pressTimer);
+          pressTimer = null;
+        }
+      };
+
+      brandLogo.addEventListener('touchstart', startPress, { passive: true });
+      brandLogo.addEventListener('touchend', cancelPress);
+      brandLogo.addEventListener('touchcancel', cancelPress);
+      brandLogo.addEventListener('mousedown', startPress);
+      brandLogo.addEventListener('mouseup', cancelPress);
+      brandLogo.addEventListener('mouseleave', cancelPress);
+    }
+
+    // 4. Mobile Stealth Trigger: Triple-Tap on Footer Version Tag
+    const footerTag = document.getElementById('footer-version-tag');
+    if (footerTag) {
+      let tapCount = 0;
+      let tapTimer = null;
+
+      footerTag.addEventListener('click', () => {
+        tapCount++;
+        if (tapCount === 1) {
+          tapTimer = setTimeout(() => {
+            tapCount = 0;
+          }, 600);
+        } else if (tapCount >= 3) {
+          clearTimeout(tapTimer);
+          tapCount = 0;
+          this.toggleLabMode();
+        }
+      });
+    }
+  }
+
+  setLabMode(enabled, notify = true) {
+    this.isLabMode = !!enabled;
+    localStorage.setItem('triarch_lab_mode', this.isLabMode ? 'true' : 'false');
+    document.body.classList.toggle('lab-mode-active', this.isLabMode);
+
+    if (!this.isLabMode) {
+      // If closing lab mode, return to main arena tab
+      if (this.activeTab !== 'arena') {
+        this.switchTab('arena');
+      }
+      // Close Odds Inspector if open
+      if (this.oddsInspector && this.oddsInspector.isOpen) {
+        this.oddsInspector.close();
+      }
+      if (notify) {
+        toast.show('⚔️ Clean Tabletop Mode Active', 'info', 2000);
+        sfx.playClick();
+      }
+    } else {
+      // Resize cyclic graph canvas when entering lab mode
+      if (this.graphRenderer) {
+        setTimeout(() => this.graphRenderer._resize(), 50);
+      }
+      if (notify) {
+        toast.show('🔬 Math Lab & Telemetry Suite Unlocked', 'success', 2500);
+        sfx.playDominanceChime();
+      }
+    }
+  }
+
+  toggleLabMode(notify = true) {
+    this.setLabMode(!this.isLabMode, notify);
   }
 
   /* ---------------- PWA & Offline Lifecycle ---------------- */
@@ -350,7 +480,7 @@ class TriarchApp {
       }
     });
 
-    if (tabId === 'arena' && this.graphRenderer) {
+    if (tabId === 'arena' && this.graphRenderer && this.isLabMode) {
       this.graphRenderer._resize();
     }
   }
@@ -495,8 +625,8 @@ class TriarchApp {
       });
     }
 
-    // Highlight winning directed edge on the live cyclic graph
-    if (clashRecord.winnerId && this.graphRenderer) {
+    // Highlight winning directed edge on the live cyclic graph (if in lab mode)
+    if (clashRecord.winnerId && this.graphRenderer && this.isLabMode) {
       if (clashRecord.winnerId === 'ruby') this.graphRenderer.highlightEdge('ruby', 'cyan');
       else if (clashRecord.winnerId === 'cyan') this.graphRenderer.highlightEdge('cyan', 'amber');
       else if (clashRecord.winnerId === 'amber') this.graphRenderer.highlightEdge('amber', 'ruby');

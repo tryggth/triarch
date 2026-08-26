@@ -1,6 +1,6 @@
 ================================================================================
  TRIARCH: CYCLIC EDGE - COMBINED SOURCE CODE BUNDLE
- Generated on: 2026-08-26T00:02:01.007Z
+ Generated on: 2026-08-26T16:56:01.335Z
  Total Source Files: 40
 ================================================================================
 
@@ -272,9 +272,32 @@ export class QRScannerHelper {
     ::-webkit-scrollbar-thumb:hover {
       background: #475569;
     }
+
+    /* Math Lab Mode Stealth Visibility Decoupling */
+    body:not(.lab-mode-active) .lab-only {
+      display: none !important;
+    }
+    body:not(.lab-mode-active) #section-arena-grid {
+      display: block !important;
+    }
+    body:not(.lab-mode-active) #arena-main-column {
+      max-width: 880px;
+      margin: 0 auto;
+      width: 100%;
+    }
   </style>
 </head>
 <body class="font-sans antialiased selection:bg-indigo-500 selection:text-white flex flex-col min-h-screen">
+
+  <!-- Stealth Math Lab Banner (Visible ONLY when Math Lab is active) -->
+  <div id="math-lab-banner" class="lab-only sticky top-0 z-50 bg-gradient-to-r from-purple-950/95 via-indigo-950/95 to-purple-950/95 border-b border-indigo-500/40 px-4 py-1.5 backdrop-blur-xl text-center flex items-center justify-between text-xs font-mono text-indigo-200 shadow-lg animate-fade-in">
+    <div class="flex items-center gap-2 max-w-7xl mx-auto justify-center w-full">
+      <span class="animate-pulse text-sm">🔬</span>
+      <span class="font-bold tracking-wide">MATH LAB & TELEMETRY SUITE ACTIVE</span>
+      <span class="hidden sm:inline text-indigo-400/90 text-[11px]">| Press <kbd class="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-indigo-300 text-[10px]">Ctrl+Shift+M</kbd> or <kbd class="px-1.5 py-0.5 rounded bg-slate-900 border border-slate-700 text-indigo-300 text-[10px]">`</kbd> to Exit</span>
+    </div>
+    <button id="btn-exit-lab-mode" class="text-slate-400 hover:text-white text-base font-bold px-2 py-0.5 leading-none transition-colors" title="Exit Math Lab">&times;</button>
+  </div>
 
   <!-- Toast Notification Container (Floating) -->
   <div id="toast-container" class="fixed top-16 left-1/2 -translate-x-1/2 z-50 flex flex-col gap-2 pointer-events-none w-11/12 max-w-md items-center"></div>
@@ -283,9 +306,9 @@ export class QRScannerHelper {
   <header class="sticky top-0 z-40 backdrop-blur-xl bg-slate-950/85 border-b border-slate-800/80 px-4 py-3 sm:px-6">
     <div class="max-w-7xl mx-auto flex items-center justify-between">
       
-      <!-- Brand & Logo -->
-      <div class="flex items-center gap-3">
-        <img src="triarch.svg" alt="TRIARCH Logo" class="w-9 h-9 drop-shadow-[0_0_12px_#8b5cf6]" />
+      <!-- Brand & Logo (Stealth Long-Press Trigger) -->
+      <div id="brand-logo" class="flex items-center gap-3 cursor-pointer select-none group transition-transform active:scale-95" title="Long-press (2s) to toggle Math Lab">
+        <img src="triarch.svg" alt="TRIARCH Logo" class="w-9 h-9 drop-shadow-[0_0_12px_#8b5cf6] transition-transform group-hover:rotate-12 duration-300" />
         <div>
           <h1 class="font-cinzel text-lg sm:text-xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-rose-400 via-cyan-300 to-amber-300">
             TRIARCH
@@ -296,8 +319,8 @@ export class QRScannerHelper {
 
       <!-- Header Controls -->
       <div class="flex items-center gap-2 sm:gap-3">
-        <!-- Live Odds Inspector Button -->
-        <button id="btn-toggle-odds" class="px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 hover:border-indigo-500/50 text-indigo-300 text-xs font-bold font-mono transition-all shadow-sm flex items-center gap-1.5">
+        <!-- Live Odds Inspector Button (Lab Only) -->
+        <button id="btn-toggle-odds" class="lab-only px-3 py-1.5 rounded-xl bg-slate-900 border border-slate-700 hover:border-indigo-500/50 text-indigo-300 text-xs font-bold font-mono transition-all shadow-sm flex items-center gap-1.5">
           <span>📊</span> Odds
         </button>
 
@@ -327,16 +350,16 @@ export class QRScannerHelper {
           🔊 SFX
         </button>
 
-        <!-- Pristine Factory Reset Button -->
-        <button id="btn-pristine-reset" class="px-2 py-1.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-rose-500/40 text-slate-500 hover:text-rose-400 text-xs font-mono transition-all" title="Factory Reset (Clears cache, history & resets state)">
+        <!-- Pristine Factory Reset Button (Lab Only) -->
+        <button id="btn-pristine-reset" class="lab-only px-2 py-1.5 rounded-xl bg-slate-900 border border-slate-800 hover:border-rose-500/40 text-slate-500 hover:text-rose-400 text-xs font-mono transition-all" title="Factory Reset (Clears cache, history & resets state)">
           🔄
         </button>
       </div>
     </div>
   </header>
 
-  <!-- NAVIGATION TABS -->
-  <nav class="border-b border-slate-800 bg-slate-950/40 backdrop-blur-md px-4">
+  <!-- NAVIGATION TABS (Lab Only) -->
+  <nav id="main-nav-tabs" class="lab-only border-b border-slate-800 bg-slate-950/40 backdrop-blur-md px-4 animate-fade-in">
     <div class="max-w-7xl mx-auto flex space-x-2 sm:space-x-8 overflow-x-auto py-2">
       <button id="nav-arena" class="px-3 py-2 text-xs sm:text-sm font-mono font-bold border-b-2 border-indigo-500 text-indigo-400 whitespace-nowrap transition-colors flex items-center gap-1.5">
         <span>⚔️</span> Arena Battle
@@ -360,10 +383,10 @@ export class QRScannerHelper {
     <section id="section-arena" class="space-y-6">
       
       <!-- Arena Overview Grid -->
-      <div class="grid grid-cols-1 lg:grid-cols-12 gap-6">
+      <div id="section-arena-grid" class="grid grid-cols-1 lg:grid-cols-12 gap-6">
         
-        <!-- Left Column: Cyclic Tournament Graph Visualizer & Match Ledger -->
-        <div class="lg:col-span-5 space-y-6">
+        <!-- Left Column: Cyclic Tournament Graph Visualizer & Match Ledger (Lab Only) -->
+        <div id="cyclic-graph-card" class="lab-only lg:col-span-5 space-y-6 animate-fade-in">
           <div class="p-5 rounded-3xl border border-slate-800 bg-slate-950/60 backdrop-blur-xl shadow-2xl flex flex-col items-center justify-between">
             <div class="w-full flex items-center justify-between mb-2">
               <div>
@@ -393,8 +416,8 @@ export class QRScannerHelper {
           </div>
         </div>
 
-        <!-- Right Column: Central Battlefield Stage & Combat Controls -->
-        <div class="lg:col-span-7 space-y-6">
+        <!-- Right / Main Column: Central Battlefield Stage & Combat Controls -->
+        <div id="arena-main-column" class="lg:col-span-7 space-y-6">
           
           <!-- Round Info & Actions Banner -->
           <div class="p-4 rounded-2xl border border-slate-800 bg-slate-900/40 backdrop-blur-md flex flex-wrap items-center justify-between gap-3">
@@ -447,13 +470,19 @@ export class QRScannerHelper {
             </div>
           </div>
 
+          <!-- Combat Chronicle / History Log -->
+          <div class="p-5 rounded-3xl border border-slate-800 bg-slate-950/60 backdrop-blur-md space-y-3">
+            <h3 class="text-xs font-bold uppercase tracking-wider text-slate-400 font-mono">Combat Chronicle</h3>
+            <div id="arena-history-list" class="space-y-2 max-h-48 overflow-y-auto pr-1"></div>
+          </div>
+
         </div>
 
       </div>
 
     </section>
 
-    <!-- ==================== SECTION 2: MATH SIMULATOR ==================== -->
+    <!-- ==================== SECTION 2: MATH SIMULATOR (Lab Only) ==================== -->
     <section id="section-simulator" class="hidden space-y-6">
       <div class="p-6 rounded-3xl border border-slate-800 bg-slate-950/70 backdrop-blur-xl shadow-2xl space-y-6">
         
@@ -507,7 +536,7 @@ export class QRScannerHelper {
       </div>
     </section>
 
-    <!-- ==================== SECTION 3: PARADOX EXPLORER ==================== -->
+    <!-- ==================== SECTION 3: PARADOX EXPLORER (Lab Only) ==================== -->
     <section id="section-paradox" class="hidden space-y-6">
       <div class="p-6 rounded-3xl border border-slate-800 bg-slate-950/70 backdrop-blur-xl shadow-2xl space-y-6">
         
@@ -526,7 +555,7 @@ export class QRScannerHelper {
       </div>
     </section>
 
-    <!-- ==================== SECTION 4: CODEX & RULES ==================== -->
+    <!-- ==================== SECTION 4: CODEX & RULES (Lab Only) ==================== -->
     <section id="section-codex" class="hidden space-y-6">
       <div class="p-6 sm:p-8 rounded-3xl border border-slate-800 bg-slate-950/70 backdrop-blur-xl shadow-2xl space-y-8 max-w-4xl mx-auto">
         
@@ -620,10 +649,12 @@ export class QRScannerHelper {
   </main>
 
   <!-- FOOTER -->
-  <footer class="border-t border-slate-900 bg-slate-950/80 backdrop-blur-md py-4 px-6 text-center text-xs font-mono text-slate-500">
+  <footer id="app-footer" class="border-t border-slate-900 bg-slate-950/80 backdrop-blur-md py-4 px-6 text-center text-xs font-mono text-slate-500">
     <div class="max-w-7xl mx-auto flex flex-col sm:flex-row items-center justify-between gap-2">
       <div>TRIARCH: Cyclic Edge · Zero-Build Pure ES Modules & PWA</div>
-      <div>Designed for GitHub Pages & Offline Tabletop Gaming</div>
+      <div id="footer-version-tag" class="cursor-pointer hover:text-slate-400 transition-colors select-none" title="Triple-tap to toggle Math Lab">
+        Designed for GitHub Pages & Offline Tabletop Gaming · v1.3.0
+      </div>
     </div>
   </footer>
 
@@ -3573,6 +3604,7 @@ export function createSignalingTransport(roomCode, peerId = generatePeerId()) {
  * TRIARCH: Cyclic Edge - Master Application Controller
  * Connects Game Engine, Math Core, Visualizers, Procedural Web Audio,
  * PWA Lifecycle, WebRTC P2P Mesh, 3D Board View & Live Odds Inspector.
+ * Features Stealth ModeController for UI Decoupling (Clean Tabletop vs Math Lab Suite).
  */
 
 import { TRIARCH_STANDARD, DICE_PRESETS, Die } from '../math/dice.js';
@@ -3617,10 +3649,14 @@ class TriarchApp {
     this.graphRenderer = null;
     this.currentBuildVersion = null;
 
+    // Stealth Math Lab Mode State (defaults to false for clean tabletop experience)
+    this.isLabMode = localStorage.getItem('triarch_lab_mode') === 'true';
+
     this.init();
   }
 
   init() {
+    this.setupModeController();
     this.setupPWA();
     this.setupAppUpdates();
     this.setupTabs();
@@ -3645,12 +3681,20 @@ class TriarchApp {
     const params = new URLSearchParams(window.location.search);
     const roomParam = params.get('room');
     const tabParam = params.get('tab');
+    const labParam = params.get('lab');
+
+    if (labParam === '1' || labParam === 'true') {
+      this.setLabMode(true, false);
+    }
 
     if (roomParam) {
       setTimeout(() => {
         this.lobbyModal.open(roomParam.toUpperCase());
       }, 400);
     } else if (tabParam && ['arena', 'simulator', 'paradox', 'codex'].includes(tabParam)) {
+      if (tabParam !== 'arena') {
+        this.setLabMode(true, false);
+      }
       this.switchTab(tabParam);
     }
 
@@ -3660,6 +3704,123 @@ class TriarchApp {
         tour.start();
       }, 600);
     }
+  }
+
+  /* ---------------- Mode Controller (Clean Tabletop vs Math Lab) ---------------- */
+  setupModeController() {
+    // Apply initial state to DOM
+    this.setLabMode(this.isLabMode, false);
+
+    // 1. Desktop Hotkey Listeners (Ctrl+Shift+M, Cmd+Shift+M, backtick ` / ~)
+    window.addEventListener('keydown', (e) => {
+      // Don't trigger if user is actively typing in an input field
+      const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
+      if (activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select') {
+        return;
+      }
+
+      const isModifierM = (e.ctrlKey || e.metaKey) && e.shiftKey && (e.key === 'M' || e.key === 'm');
+      const isBacktick = e.key === '`' || e.key === '~';
+
+      if (isModifierM || isBacktick) {
+        e.preventDefault();
+        this.toggleLabMode();
+      }
+    });
+
+    // 2. Banner Exit Button
+    const btnExitLab = document.getElementById('btn-exit-lab-mode');
+    if (btnExitLab) {
+      btnExitLab.addEventListener('click', () => {
+        this.setLabMode(false);
+      });
+    }
+
+    // 3. Mobile Stealth Gesture: 2-Second Long-Press on Brand Logo
+    const brandLogo = document.getElementById('brand-logo');
+    if (brandLogo) {
+      let pressTimer = null;
+      let isLongPress = false;
+
+      const startPress = () => {
+        isLongPress = false;
+        brandLogo.style.transform = 'scale(0.96)';
+        pressTimer = setTimeout(() => {
+          isLongPress = true;
+          brandLogo.style.transform = '';
+          this.toggleLabMode();
+        }, 2000);
+      };
+
+      const cancelPress = () => {
+        brandLogo.style.transform = '';
+        if (pressTimer) {
+          clearTimeout(pressTimer);
+          pressTimer = null;
+        }
+      };
+
+      brandLogo.addEventListener('touchstart', startPress, { passive: true });
+      brandLogo.addEventListener('touchend', cancelPress);
+      brandLogo.addEventListener('touchcancel', cancelPress);
+      brandLogo.addEventListener('mousedown', startPress);
+      brandLogo.addEventListener('mouseup', cancelPress);
+      brandLogo.addEventListener('mouseleave', cancelPress);
+    }
+
+    // 4. Mobile Stealth Trigger: Triple-Tap on Footer Version Tag
+    const footerTag = document.getElementById('footer-version-tag');
+    if (footerTag) {
+      let tapCount = 0;
+      let tapTimer = null;
+
+      footerTag.addEventListener('click', () => {
+        tapCount++;
+        if (tapCount === 1) {
+          tapTimer = setTimeout(() => {
+            tapCount = 0;
+          }, 600);
+        } else if (tapCount >= 3) {
+          clearTimeout(tapTimer);
+          tapCount = 0;
+          this.toggleLabMode();
+        }
+      });
+    }
+  }
+
+  setLabMode(enabled, notify = true) {
+    this.isLabMode = !!enabled;
+    localStorage.setItem('triarch_lab_mode', this.isLabMode ? 'true' : 'false');
+    document.body.classList.toggle('lab-mode-active', this.isLabMode);
+
+    if (!this.isLabMode) {
+      // If closing lab mode, return to main arena tab
+      if (this.activeTab !== 'arena') {
+        this.switchTab('arena');
+      }
+      // Close Odds Inspector if open
+      if (this.oddsInspector && this.oddsInspector.isOpen) {
+        this.oddsInspector.close();
+      }
+      if (notify) {
+        toast.show('⚔️ Clean Tabletop Mode Active', 'info', 2000);
+        sfx.playClick();
+      }
+    } else {
+      // Resize cyclic graph canvas when entering lab mode
+      if (this.graphRenderer) {
+        setTimeout(() => this.graphRenderer._resize(), 50);
+      }
+      if (notify) {
+        toast.show('🔬 Math Lab & Telemetry Suite Unlocked', 'success', 2500);
+        sfx.playDominanceChime();
+      }
+    }
+  }
+
+  toggleLabMode(notify = true) {
+    this.setLabMode(!this.isLabMode, notify);
   }
 
   /* ---------------- PWA & Offline Lifecycle ---------------- */
@@ -3921,7 +4082,7 @@ class TriarchApp {
       }
     });
 
-    if (tabId === 'arena' && this.graphRenderer) {
+    if (tabId === 'arena' && this.graphRenderer && this.isLabMode) {
       this.graphRenderer._resize();
     }
   }
@@ -4066,8 +4227,8 @@ class TriarchApp {
       });
     }
 
-    // Highlight winning directed edge on the live cyclic graph
-    if (clashRecord.winnerId && this.graphRenderer) {
+    // Highlight winning directed edge on the live cyclic graph (if in lab mode)
+    if (clashRecord.winnerId && this.graphRenderer && this.isLabMode) {
       if (clashRecord.winnerId === 'ruby') this.graphRenderer.highlightEdge('ruby', 'cyan');
       else if (clashRecord.winnerId === 'cyan') this.graphRenderer.highlightEdge('cyan', 'amber');
       else if (clashRecord.winnerId === 'amber') this.graphRenderer.highlightEdge('amber', 'ruby');
@@ -7104,9 +7265,11 @@ describe('Graph-Theoretic Cycle Detection', () => {
 
 {
   "name": "TRIARCH: Cyclic Edge",
-  "version": "1.3.0",
-  "buildTime": "2026-08-25T16:53:00Z",
+  "version": "1.4.0",
+  "buildTime": "2026-08-26T10:00:00Z",
   "features": [
+    "Clean Tabletop Game Play Mode by Default",
+    "Stealth Math Lab & Telemetry Suite (Ctrl+Shift+M / ~ / 2s Long-Press)",
     "Penrose Tri-Die Vector Background Watermark",
     "CSS 3D Preserved Transform Tumbling Dice Engine",
     "Real-Time Analytical Odds Inspector (Bayesian Meters)",

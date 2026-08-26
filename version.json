@@ -1,8 +1,10 @@
 {
   "name": "TRIARCH: Cyclic Edge",
-  "version": "1.3.0",
-  "buildTime": "2026-08-25T16:53:00Z",
+  "version": "1.4.0",
+  "buildTime": "2026-08-26T10:00:00Z",
   "features": [
+    "Clean Tabletop Game Play Mode by Default",
+    "Stealth Math Lab & Telemetry Suite (Ctrl+Shift+M / ~ / 2s Long-Press)",
     "Penrose Tri-Die Vector Background Watermark",
     "CSS 3D Preserved Transform Tumbling Dice Engine",
     "Real-Time Analytical Odds Inspector (Bayesian Meters)",
