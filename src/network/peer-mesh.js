@@ -31,12 +31,8 @@ export class PeerMeshManager {
     this.transport = null;
     this.latencies = new Map(); // peerId -> latency in ms
 
-    // 3 Seats Allocation Map
-    this.seats = {
-      ruby: { peerId: null, name: 'Open (Bot)', isAI: true, aiType: 'CYCLIC_EXPLOITER', ready: false },
-      cyan: { peerId: null, name: 'Open (Bot)', isAI: true, aiType: 'MAX_EV', ready: false },
-      amber: { peerId: null, name: 'Open (Bot)', isAI: true, aiType: 'SHARD_TACTICIAN', ready: false }
-    };
+    // Initialize clean 3-seat allocation map
+    this._resetSeats();
 
     this.listeners = {
       seatState: new Set(),
@@ -46,6 +42,14 @@ export class PeerMeshManager {
       latency: new Set(),
       gameStart: new Set(),
       chat: new Set()
+    };
+  }
+
+  _resetSeats() {
+    this.seats = {
+      ruby: { peerId: null, name: null, isAI: false, aiType: null, ready: false },
+      cyan: { peerId: null, name: null, isAI: false, aiType: null, ready: false },
+      amber: { peerId: null, name: null, isAI: false, aiType: null, ready: false }
     };
   }
 
@@ -62,6 +66,7 @@ export class PeerMeshManager {
       this.disconnect();
     }
 
+    this._resetSeats();
     this.roomCode = roomCode.toUpperCase();
     this.isHost = isHost;
     if (peerName) this.peerName = peerName;
@@ -216,10 +221,16 @@ export class PeerMeshManager {
             this.broadcastSeatState();
             globalKvRegistry.updateRoomDebounced(this.roomCode, { seats: this.seats });
 
-            // Auto-Start Trigger: when all 3 Go-First dice seats are claimed
-            const humanCount = ['ruby', 'cyan', 'amber'].filter(s => this.seats[s].peerId && !this.seats[s].isAI).length;
-            if (humanCount === 3) {
-              console.log('[Mesh] All 3 Go-First dice seats claimed! Launching match automatically.');
+            // Strict 3-Player Auto-Start Trigger:
+            // All 3 distinct human players must be seated with non-null unique peerIds
+            const activeHumans = ['ruby', 'cyan', 'amber']
+              .map(s => this.seats[s])
+              .filter(s => s && s.peerId && !s.isAI);
+
+            const distinctHumanPeerIds = new Set(activeHumans.map(s => s.peerId));
+
+            if (activeHumans.length === 3 && distinctHumanPeerIds.size === 3) {
+              console.log('[Mesh] All 3 distinct Go-First human players joined! Launching match automatically.');
               const startEnvelope = createActionEnvelope(ACTION_TYPES.GAME_START, null, {
                 mode: 'CYCLIC_SHOWDOWN',
                 targetScore: 5,
@@ -232,6 +243,8 @@ export class PeerMeshManager {
               for (const cb of this.listeners.gameStart) {
                 cb(startEnvelope.payload);
               }
+            } else {
+              console.log(`[Mesh] Waiting for 3rd player (current distinct humans: ${distinctHumanPeerIds.size}/3)`);
             }
           }
         }
@@ -418,5 +431,6 @@ export class PeerMeshManager {
     this.roomCode = null;
     this.localSeat = null;
     this.latencies.clear();
+    this._resetSeats();
   }
 }
