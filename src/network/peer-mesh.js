@@ -15,7 +15,6 @@ import {
   deserializeAction
 } from './protocol.js';
 import { createSignalingTransport, generatePeerId } from './signaling.js';
-import { globalKvRegistry } from './kv-room-registry.js';
 
 export class PeerMeshManager {
   /**
@@ -257,7 +256,6 @@ export class PeerMeshManager {
           this.seats[targetDie] = seatData;
 
           this.broadcastSeatState();
-          globalKvRegistry.claimSeat(this.roomCode, targetDie, peerId, peerName);
 
           // Strict 3-Player Auto-Start Trigger:
           // All 3 distinct human players must be seated with non-null unique peerIds
@@ -276,7 +274,6 @@ export class PeerMeshManager {
               timestamp: Date.now()
             });
             this.broadcastAction(startEnvelope);
-            globalKvRegistry.deleteRoom(this.roomCode);
 
             for (const cb of this.listeners.gameStart) {
               cb(startEnvelope.payload);
@@ -366,7 +363,6 @@ export class PeerMeshManager {
       this.seats[dieKey] = hostSeatData;
       this.localSeat = dieKey;
       this.broadcastSeatState();
-      globalKvRegistry.claimSeat(this.roomCode, dieKey, this.peerId, this.peerName);
     } else {
       const claim = createActionEnvelope(ACTION_TYPES.SEAT_CLAIM, dieKey, {
         die: dieKey,

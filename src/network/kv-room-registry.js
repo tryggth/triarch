@@ -290,98 +290,13 @@ export class KvRoomRegistry {
   }
 
   /**
-   * Claims a Go-First die seat in an existing waiting room.
-   * @param {string} roomCode
-   * @param {string} dieKey - 'G1' | 'G2' | 'G3'
-   * @param {string} peerId
-   * @param {string} [peerName]
-   * @returns {Promise<Object>}
-   */
-  async claimSeat(roomCode, dieKey, peerId, peerName = null) {
-    const code = roomCode.toUpperCase();
-    const normalizedDie = dieKey.startsWith('G') ? dieKey : (FACTION_TO_GO_FIRST[dieKey] || 'G1');
-
-    const current = await this.getRoom(code);
-    if (!current) {
-      throw new Error(`Room ${code} does not exist`);
-    }
-
-    const currentSeat = current.seats[normalizedDie];
-    if (currentSeat && currentSeat.claimed && currentSeat.peerId && currentSeat.peerId !== peerId) {
-      throw new Error(`Go-First Die ${normalizedDie} is already claimed by ${currentSeat.name || 'another player'}`);
-    }
-
-    // Vacate any other seat held by this peer
-    const updatedSeats = { ...current.seats };
-    for (const d of ['G1', 'G2', 'G3']) {
-      if (d !== normalizedDie && updatedSeats[d]?.peerId === peerId) {
-        updatedSeats[d] = {
-          peerId: null,
-          name: null,
-          claimed: false,
-          isAI: false,
-          die: d,
-          faction: GO_FIRST_TO_FACTION[d]
-        };
-      }
-    }
-
-    updatedSeats[normalizedDie] = {
-      peerId,
-      name: peerName || `Player (${normalizedDie})`,
-      claimed: true,
-      isAI: false,
-      die: normalizedDie,
-      faction: GO_FIRST_TO_FACTION[normalizedDie]
-    };
-
-    const count = Object.values(updatedSeats).filter((s) => s && s.claimed).length;
-    const isFull = count >= 3;
-    const status = isFull ? 'ACTIVE' : 'WAITING';
-
-    const descriptor = this.formatDescriptor({
-      ...current,
-      seats: updatedSeats,
-      status,
-      playerCount: count,
-      isFull,
-      lastSeen: Date.now()
-    });
-
-    const key = KvRoomRegistry.getRoomKey(code);
-
-    if (this.kv && typeof this.kv.put === 'function') {
-      try {
-        if (isFull && typeof this.kv.delete === 'function') {
-          await this.kv.delete(key);
-        } else {
-          await this.kv.put(key, this.jc.encode(descriptor));
-        }
-      } catch (err) {
-        console.warn('[KV Registry] Write error:', err.message);
-      }
-    }
-
-    if (isFull) {
-      this.localFallbackRooms.delete(code);
-      this._hostedWaitingRooms.delete(code);
-    } else {
-      this.localFallbackRooms.set(code, descriptor);
-    }
-
-    this._saveToLocalStorage();
-    this._notifyUpdate();
-
-    return descriptor;
-  }
-
-  /**
    * Debounced room state updater to protect quota limits.
    * @param {string} roomCode
    * @param {Object} updates
    * @param {boolean} [immediate=false]
+   * @returns {Promise<Object|void>}
    */
-  updateRoomDebounced(roomCode, updates, immediate = false) {
+  async updateRoomDebounced(roomCode, updates, immediate = false) {
     const code = roomCode.toUpperCase();
     if (!this._pendingUpdates) this._pendingUpdates = new Map();
     if (!this._debounceTimers) this._debounceTimers = new Map();
@@ -396,8 +311,8 @@ export class KvRoomRegistry {
     }
 
     if (immediate) {
-      this._flushRoomUpdate(code, merged);
-      return;
+      this._pendingUpdates.delete(code);
+      return await this._flushRoomUpdate(code, merged);
     }
 
     const timer = setTimeout(() => {
@@ -418,7 +333,7 @@ export class KvRoomRegistry {
   async _flushRoomUpdate(roomCode, updates) {
     const code = roomCode.toUpperCase();
     const current = await this.getRoom(code);
-    if (!current) return;
+    if (!current) return null;
 
     const formatted = this.formatDescriptor({ ...current, ...updates, lastSeen: Date.now() });
     const key = KvRoomRegistry.getRoomKey(code);
@@ -433,15 +348,14 @@ export class KvRoomRegistry {
       } catch (err) {}
     }
 
+    this.localFallbackRooms.set(code, formatted);
     if (formatted.isFull) {
-      this.localFallbackRooms.delete(code);
       this._hostedWaitingRooms.delete(code);
-    } else {
-      this.localFallbackRooms.set(code, formatted);
     }
 
     this._saveToLocalStorage();
     this._notifyUpdate();
+    return formatted;
   }
 
   /**

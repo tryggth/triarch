@@ -11,21 +11,23 @@ import { GameStateManager } from '../src/game/state.js';
 import { NetworkGameStateAdapter } from '../src/game/network-state.js';
 import { PeerMeshManager } from '../src/network/peer-mesh.js';
 
-// Setup in-memory mock for localStorage in Node environment
-function setupMockLocalStorage() {
+// Setup in-memory mock for storage in Node environment
+function setupMockStorage() {
   const store = new Map();
-  global.localStorage = {
+  const mockStorage = {
     getItem: (key) => store.get(key) || null,
     setItem: (key, val) => store.set(key, String(val)),
     removeItem: (key) => store.delete(key),
     clear: () => store.clear()
   };
+  global.sessionStorage = mockStorage;
+  global.localStorage = mockStorage;
   return store;
 }
 
 describe('Persistent App Instance Identity', () => {
-  test('generatePeerId returns consistent ID stored in localStorage across calls', () => {
-    const store = setupMockLocalStorage();
+  test('generatePeerId returns consistent ID stored in sessionStorage across calls', () => {
+    const store = setupMockStorage();
 
     const id1 = generatePeerId();
     assert.ok(id1.startsWith('client_'));
@@ -35,8 +37,8 @@ describe('Persistent App Instance Identity', () => {
     assert.equal(id2, id1, 'Subsequent generatePeerId calls must return the same stored client ID');
   });
 
-  test('generatePeerId uses pre-existing client ID if already present in localStorage', () => {
-    const store = setupMockLocalStorage();
+  test('generatePeerId uses pre-existing client ID if already present in sessionStorage', () => {
+    const store = setupMockStorage();
     store.set('triarch_client_id', 'client_custom_alpha_123');
 
     const id = generatePeerId();
@@ -104,7 +106,7 @@ describe('MVC Separation: GameStateManager Event Emitter', () => {
 
 describe('Cross-Tab LocalStorage Room Synchronization', () => {
   test('Local cross-tab sync writes to triarch_public_rooms_v1 and updates active listings', async () => {
-    const store = setupMockLocalStorage();
+    const store = setupMockStorage();
 
     const registryA = new KvRoomRegistry();
     const registryB = new KvRoomRegistry();

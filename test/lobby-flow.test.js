@@ -87,22 +87,23 @@ describe('Die-Driven Matchmaking & Room Registry', () => {
     assert.equal(room.seats.G3.claimed, false);
   });
 
-  test('Die Claim Validation: Rejects duplicate claims for already taken die', async () => {
+  test('Host-Authoritative Seat Updates: Updates room seats via updateRoomDebounced', async () => {
     const mockKv = createMockKvStore();
     const registry = new KvRoomRegistry({ kvStore: mockKv });
 
-    await registry.createRoom('TR-DUP', 'peer_host', {
+    const room = await registry.createRoom('TR-DUP', 'peer_host', {
       hostDie: 'G1',
       hostName: 'HostPlayer'
     });
 
-    // 2nd player attempts to claim G1 (already taken by host)
-    await assert.rejects(async () => {
-      await registry.claimSeat('TR-DUP', 'G1', 'peer_intruder', 'Intruder');
-    }, /already claimed/);
+    const updatedSeats = {
+      ...room.seats,
+      G2: { peerId: 'peer_bob', name: 'Bob', claimed: true, isAI: false, die: 'G2', faction: 'cyan' }
+    };
 
-    // 2nd player claims G2 (open)
-    const updated = await registry.claimSeat('TR-DUP', 'G2', 'peer_bob', 'Bob');
+    await registry.updateRoomDebounced('TR-DUP', { seats: updatedSeats }, true);
+
+    const updated = await registry.getRoom('TR-DUP');
     assert.equal(updated.playerCount, 2);
     assert.equal(updated.seats.G2.claimed, true);
     assert.equal(updated.seats.G2.name, 'Bob');
@@ -114,12 +115,16 @@ describe('Die-Driven Matchmaking & Room Registry', () => {
     const mockKv = createMockKvStore();
     const registry = new KvRoomRegistry({ kvStore: mockKv });
 
-    await registry.createRoom('TR-FULL', 'peer_host', { hostDie: 'G1', hostName: 'Host' });
-    await registry.claimSeat('TR-FULL', 'G2', 'peer_two', 'Player 2');
+    const room = await registry.createRoom('TR-FULL', 'peer_host', { hostDie: 'G1', hostName: 'Host' });
+    const fullSeats = {
+      ...room.seats,
+      G2: { peerId: 'peer_two', name: 'Player 2', claimed: true, isAI: false, die: 'G2', faction: 'cyan' },
+      G3: { peerId: 'peer_three', name: 'Player 3', claimed: true, isAI: false, die: 'G3', faction: 'amber' }
+    };
 
-    // 3rd player claims G3
-    const fullRoom = await registry.claimSeat('TR-FULL', 'G3', 'peer_three', 'Player 3');
+    await registry.updateRoomDebounced('TR-FULL', { seats: fullSeats }, true);
 
+    const fullRoom = await registry.getRoom('TR-FULL');
     assert.equal(fullRoom.playerCount, 3);
     assert.equal(fullRoom.isFull, true);
     assert.equal(fullRoom.status, 'ACTIVE');
@@ -136,9 +141,13 @@ describe('Die-Driven Matchmaking & Room Registry', () => {
     await registry.createRoom('TR-OPEN', 'peer_open', { hostDie: 'G1' });
 
     // Full room (3 players)
-    await registry.createRoom('TR-BUSY', 'peer_b1', { hostDie: 'G1' });
-    await registry.claimSeat('TR-BUSY', 'G2', 'peer_b2', 'B2');
-    await registry.claimSeat('TR-BUSY', 'G3', 'peer_b3', 'B3');
+    const busyRoom = await registry.createRoom('TR-BUSY', 'peer_b1', { hostDie: 'G1' });
+    const fullSeats = {
+      ...busyRoom.seats,
+      G2: { peerId: 'peer_b2', name: 'B2', claimed: true, isAI: false, die: 'G2', faction: 'cyan' },
+      G3: { peerId: 'peer_b3', name: 'B3', claimed: true, isAI: false, die: 'G3', faction: 'amber' }
+    };
+    await registry.updateRoomDebounced('TR-BUSY', { seats: fullSeats }, true);
 
     // Query waiting rooms only
     const waitingRooms = await registry.listActiveRooms({ onlyWaiting: true });
@@ -167,13 +176,20 @@ describe('Die-Driven Matchmaking & Room Registry', () => {
     assert.equal(room.seats.G2.claimed, false);
     assert.equal(room.seats.G3.claimed, false);
 
-    // 2. Tab 2 (Joiner): Discovers room and claims G2
+    // 2. Tab 2 (Joiner): Discovers room
     const tab2Registry = new KvRoomRegistry({ kvStore: mockKv });
     const tab2Discovered = await tab2Registry.listActiveRooms({ onlyWaiting: true });
     assert.equal(tab2Discovered.length, 1);
     assert.equal(tab2Discovered[0].roomCode, 'TR-VERIFY');
 
-    const roomAfterTab2 = await tab2Registry.claimSeat('TR-VERIFY', 'G2', 'peer_tab2', 'Player 2');
+    // Host updates seat on mesh when Tab 2 claims G2
+    const seats2 = {
+      ...room.seats,
+      G2: { peerId: 'peer_tab2', name: 'Player 2', claimed: true, isAI: false, die: 'G2', faction: 'cyan' }
+    };
+    await hostRegistry.updateRoomDebounced('TR-VERIFY', { seats: seats2 }, true);
+
+    const roomAfterTab2 = await tab2Registry.getRoom('TR-VERIFY');
     assert.equal(roomAfterTab2.playerCount, 2);
     assert.equal(roomAfterTab2.status, 'WAITING', 'Must remain WAITING after 2nd player joins');
     assert.equal(roomAfterTab2.isFull, false, 'Must NOT be full after 2nd player joins');
@@ -191,15 +207,17 @@ describe('Die-Driven Matchmaking & Room Registry', () => {
     assert.equal(tab3Discovered[0].seats.G2.claimed, true);
     assert.equal(tab3Discovered[0].seats.G3.claimed, false);
 
-    const roomAfterTab3 = await tab3Registry.claimSeat('TR-VERIFY', 'G3', 'peer_tab3', 'Player 3');
-    assert.equal(roomAfterTab3.playerCount, 3);
-    assert.equal(roomAfterTab3.status, 'ACTIVE', 'Transitions to ACTIVE only when 3rd player joins');
-    assert.equal(roomAfterTab3.isFull, true);
-    assert.equal(roomAfterTab3.seats.G1.claimed, true);
-    assert.equal(roomAfterTab3.seats.G2.claimed, true);
-    assert.equal(roomAfterTab3.seats.G3.claimed, true);
+    // Host updates seat and triggers game launch
+    const seats3 = {
+      ...seats2,
+      G3: { peerId: 'peer_tab3', name: 'Player 3', claimed: true, isAI: false, die: 'G3', faction: 'amber' }
+    };
+    await hostRegistry.updateRoomDebounced('TR-VERIFY', { seats: seats3 }, true);
 
-    // 4. Tab 4: Room is now active/full, no longer in waiting list
+    // Host deletes room upon match start
+    await hostRegistry.deleteRoom('TR-VERIFY');
+
+    // 4. Tab 4: Room is now active/full/deleted, no longer in waiting list
     const tab4Registry = new KvRoomRegistry({ kvStore: mockKv });
     const tab4Discovered = await tab4Registry.listActiveRooms({ onlyWaiting: true });
     assert.equal(tab4Discovered.length, 0, 'Full/active rooms removed from available waiting list');

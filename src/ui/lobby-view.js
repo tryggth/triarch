@@ -41,6 +41,9 @@ export class MultiplayerLobbyModal {
     // Auto-dismiss lobby and waiting modal when game starts
     this.mesh.onGameStart(() => {
       console.log('[Lobby] Received GAME_START. Auto-dismissing waiting modal.');
+      if (this.mesh.isHost && this.mesh.roomCode) {
+        globalKvRegistry.deleteRoom(this.mesh.roomCode);
+      }
       this.close();
       this.closeWaitingModal();
     });
@@ -388,20 +391,14 @@ export class MultiplayerLobbyModal {
     haptics.light();
     const code = roomCode.toUpperCase();
     const peerName = `Player (${dieKey})`;
-    const targetFaction = GO_FIRST_TO_FACTION[dieKey] || 'cyan';
 
     this.mesh.connect(code, false, peerName);
     this.net.isMultiplayer = true;
 
     // Dispatch seat claim
     setTimeout(() => {
-      this.mesh.claimSeat(targetFaction);
+      this.mesh.claimSeat(dieKey);
     }, 150);
-
-    // Update KV registry
-    try {
-      await globalKvRegistry.claimSeat(code, dieKey, this.mesh.peerId, peerName);
-    } catch (e) {}
 
     toast.show(`Joined Room ${code} as ${dieKey}!`, 'success', 2500);
     this.close();

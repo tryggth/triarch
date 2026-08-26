@@ -6,16 +6,16 @@
 import { createTransport, TRANSPORT_TYPES } from './transports/index.js';
 import { loadNatsConfig } from './nats-config.js';
 
-// Unique persistent peer ID generator (reconnects with same ID across refreshes)
+// Unique persistent peer ID generator (reconnects with same ID across refreshes in same tab, distinct per tab)
 export function generatePeerId() {
-  if (typeof localStorage !== 'undefined') {
+  if (typeof sessionStorage !== 'undefined') {
     try {
-      const existing = localStorage.getItem('triarch_client_id');
+      const existing = sessionStorage.getItem('triarch_client_id');
       if (existing && typeof existing === 'string' && existing.trim()) {
         return existing.trim();
       }
       const newId = 'client_' + Math.random().toString(36).substring(2, 10) + '_' + Date.now().toString(36);
-      localStorage.setItem('triarch_client_id', newId);
+      sessionStorage.setItem('triarch_client_id', newId);
       return newId;
     } catch (e) {
       // Fallback for private browsing or restricted environments
