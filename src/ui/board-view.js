@@ -261,8 +261,9 @@ export class CSS3DDiceCube {
 
         <!-- Sub-Label -->
         <div class="text-center">
-          <div class="text-xs font-bold" style="color: ${this.accent}">${this.name.split(' ')[0]}</div>
-          <div class="text-[10px] font-mono text-slate-400 faces-str">[${this.faces.join(',')}]</div>
+          <div class="text-xs font-bold" style="color: ${this.accent}">${this.seatId.charAt(0).toUpperCase() + this.seatId.slice(1)}</div>
+          <div class="text-[10px] font-mono text-slate-400">${this.name}</div>
+          <div class="text-[10px] font-mono text-slate-500 faces-str">[${this.faces.join(',')}]</div>
         </div>
       </div>
     `;

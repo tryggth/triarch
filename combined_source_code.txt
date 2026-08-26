@@ -1,6 +1,6 @@
 ================================================================================
  TRIARCH: CYCLIC EDGE - COMBINED SOURCE CODE BUNDLE
- Generated on: 2026-08-26T22:01:55.231Z
+ Generated on: 2026-08-26T22:17:53.227Z
  Total Source Files: 58
 ================================================================================
 
@@ -875,7 +875,7 @@ export class QRScannerHelper {
 
 {
   "name": "triarch-cyclic-edge",
-  "version": "1.13.1",
+  "version": "1.13.2",
   "description": "A strategic 3-player non-transitive tabletop game PWA powered by a verified mathematical dice engine",
   "type": "module",
   "main": "src/math/index.js",
@@ -7211,8 +7211,9 @@ export class CSS3DDiceCube {
 
         <!-- Sub-Label -->
         <div class="text-center">
-          <div class="text-xs font-bold" style="color: ${this.accent}">${this.name.split(' ')[0]}</div>
-          <div class="text-[10px] font-mono text-slate-400 faces-str">[${this.faces.join(',')}]</div>
+          <div class="text-xs font-bold" style="color: ${this.accent}">${this.seatId.charAt(0).toUpperCase() + this.seatId.slice(1)}</div>
+          <div class="text-[10px] font-mono text-slate-400">${this.name}</div>
+          <div class="text-[10px] font-mono text-slate-500 faces-str">[${this.faces.join(',')}]</div>
         </div>
       </div>
     `;
@@ -9667,7 +9668,7 @@ export function createDiceVisual(container, die) {
  * Robust offline caching, WebRTC P2P mesh support, NATS WebSocket adapter, and instant upgrade activation.
  */
 
-const CACHE_NAME = 'triarch-cache-v1.13.1';
+const CACHE_NAME = 'triarch-cache-v1.13.2';
 
 const PRECACHE_ASSETS = [
   './',
@@ -11917,8 +11918,8 @@ describe('Strict Two-Phase Execution Engine', () => {
 
 {
   "name": "TRIARCH: Cyclic Edge",
-  "version": "1.13.1",
-  "buildTime": "2026-08-26T22:01:41.505Z",
+  "version": "1.13.2",
+  "buildTime": "2026-08-26T22:17:53.070Z",
   "features": [
     "Strict Two-Phase Round Loop (Phase 1: Go-First Zero-Tie Initiative -> Phase 2: Tactical Turn & Energy Pot Clash)",
     "Dynamic Arena Pot Display & Accumulation of Unspent Energy",
