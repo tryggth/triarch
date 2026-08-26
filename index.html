@@ -354,29 +354,63 @@
           <!-- Central Battlefield Stage with Watermark & 3D Tumbling Cubes -->
           <div id="board-stage-mount" class="relative"></div>
 
-          <!-- Action & Shard Bar -->
-          <div class="p-4 rounded-2xl border border-slate-800 bg-slate-950/70 backdrop-blur-md flex flex-col sm:flex-row items-center justify-between gap-4">
+          <!-- Action & Shard Bar (Two-Phase Dynamic Dock) -->
+          <div id="arena-action-dock" class="p-4 rounded-2xl border border-slate-800 bg-slate-950/70 backdrop-blur-md flex flex-col sm:flex-row items-center justify-between gap-4">
             
-            <!-- Shard Power-Ups & Stance Concealment -->
-            <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-              <span class="text-xs font-mono text-slate-400">Actions:</span>
-              <button id="btn-shard-might" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-mono text-amber-300 transition-all flex items-center justify-center gap-1" title="Costs 1 Shard: +1 Face Boost">
-                ⚡ +1 Boost
-              </button>
-              <button id="btn-shard-shield" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-mono text-cyan-300 transition-all flex items-center justify-center gap-1" title="Costs 1 Shard: Wins Tiebreaks">
-                🛡️ Shield
-              </button>
-              <button id="btn-stance-conceal" class="px-3 py-2 rounded-xl bg-purple-950 hover:bg-purple-900 border border-purple-500/40 text-xs font-mono text-purple-200 transition-all flex items-center justify-center gap-1 shadow-sm" title="Zero-Knowledge SHA-256 Commit-Reveal">
-                🔒 Conceal Stance
+            <!-- Phase 1 Action Bar: Initiative Roll -->
+            <div id="dock-phase-initiative" class="w-full flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div class="text-xs font-mono text-slate-300">
+                <span class="text-amber-400 font-bold">Phase 1:</span> Roll Go-First dice to claim pole position & bank energy.
+              </div>
+              <button id="btn-arena-initiative" class="w-full sm:w-auto px-8 py-3 rounded-2xl bg-gradient-to-r from-amber-500 via-rose-500 to-indigo-600 hover:opacity-95 text-white font-bold font-mono text-sm tracking-wider shadow-[0_0_30px_#f59e0b60] transition-all transform active:scale-95 flex items-center justify-center gap-2">
+                🎲 Roll for Pole Position
               </button>
             </div>
 
-            <!-- Roll & Next Round Execution Buttons -->
-            <div class="w-full sm:w-auto">
-              <button id="btn-arena-roll" class="w-full sm:w-auto px-8 py-3 rounded-2xl bg-gradient-to-r from-rose-500 via-indigo-600 to-cyan-500 hover:opacity-95 text-white font-bold font-mono text-sm tracking-wider shadow-[0_0_30px_#6366f160] transition-all transform active:scale-95">
-                🎲 ROLL CLASH
-              </button>
-              <button id="btn-arena-next" class="hidden w-full sm:w-auto px-8 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold font-mono text-sm tracking-wider shadow-[0_0_20px_#6366f180] transition-all">
+            <!-- Phase 2 Action Bar: Tactical Stance & Market Modifiers -->
+            <div id="dock-phase-tactical" class="hidden w-full flex flex-col gap-3">
+              <!-- Local Player Turn Controls -->
+              <div id="tactical-local-controls" class="flex flex-col sm:flex-row items-center justify-between gap-3 flex-wrap">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="text-xs font-mono text-slate-400">Market:</span>
+                  <button id="btn-market-melee" class="px-3 py-2 rounded-xl bg-rose-950/80 hover:bg-rose-900 border border-rose-500/40 text-xs font-mono text-rose-200 transition-all flex items-center justify-center gap-1 shadow-sm" title="Costs 5 Energy: +2 to combat roll">
+                    ⚔️ Melee (+2) [5E]
+                  </button>
+                  <button id="btn-market-shifter" class="px-3 py-2 rounded-xl bg-amber-950/80 hover:bg-amber-900 border border-amber-500/40 text-xs font-mono text-amber-200 transition-all flex items-center justify-center gap-1 shadow-sm" title="Costs 3 Energy: +1 to combat roll">
+                    ⚡ Shift (+1) [3E]
+                  </button>
+                  <button id="btn-market-duel" class="px-3 py-2 rounded-xl bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-500/40 text-xs font-mono text-cyan-200 transition-all flex items-center justify-center gap-1 shadow-sm" title="Costs 6 Energy: Aegis Shield (Wins ties)">
+                    🛡️ Shield [6E]
+                  </button>
+                  <button id="btn-market-conceal" class="px-3 py-2 rounded-xl bg-purple-950/80 hover:bg-purple-900 border border-purple-500/40 text-xs font-mono text-purple-200 transition-all flex items-center justify-center gap-1 shadow-sm" title="Costs 4 Energy: Zero-Knowledge SHA-256 hidden stance">
+                    🔒 Conceal [4E]
+                  </button>
+                </div>
+
+                <div class="flex items-center gap-2 w-full sm:w-auto justify-end">
+                  <select id="select-tactical-die" class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-indigo-500">
+                    <option value="ruby-a">🔺 Ruby (Die A: {2,2,4,4,9,9})</option>
+                    <option value="cyan-b">🔷 Cyan (Die B: {1,1,6,6,8,8})</option>
+                    <option value="amber-c">🟡 Amber (Die C: {3,3,5,5,7,7})</option>
+                  </select>
+                  <button id="btn-tactical-commit" class="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:opacity-95 text-white font-bold font-mono text-xs tracking-wider shadow-[0_0_20px_#10b98150] transition-all">
+                    Lock Stance ➔
+                  </button>
+                </div>
+              </div>
+
+              <!-- Remote Peer / Bot Turn Wait Indicator -->
+              <div id="tactical-remote-wait" class="hidden flex items-center justify-center py-2 px-4 rounded-xl bg-slate-900/80 border border-slate-800 text-xs font-mono text-indigo-300 animate-pulse">
+                ⏳ Waiting for <span id="tactical-waiting-name" class="font-bold text-white mx-1">Archon</span> to lock stance...
+              </div>
+            </div>
+
+            <!-- Resolution Phase: Next Round Button -->
+            <div id="dock-phase-resolution" class="hidden w-full flex items-center justify-between">
+              <div class="text-xs font-mono text-slate-300">
+                <span>🏆</span> Round concluded. Ready for the next initiative clash.
+              </div>
+              <button id="btn-arena-next" class="px-8 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold font-mono text-sm tracking-wider shadow-[0_0_20px_#6366f180] transition-all">
                 Next Round ➔
               </button>
             </div>

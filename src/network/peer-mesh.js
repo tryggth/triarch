@@ -54,10 +54,10 @@ export class PeerMeshManager {
   }
 
   _resetSeats() {
-    const defaultSeat = () => ({ peerId: null, name: null, isAI: false, aiType: null, ready: false });
-    const g1 = defaultSeat();
-    const g2 = defaultSeat();
-    const g3 = defaultSeat();
+    const defaultSeat = (isAI = true, aiType = 'CYCLIC_EXPLOITER') => ({ peerId: null, name: null, isAI, aiType, ready: false });
+    const g1 = defaultSeat(false, null);
+    const g2 = defaultSeat(true, 'MAX_EV');
+    const g3 = defaultSeat(true, 'SHARD_TACTICIAN');
     this.seats = {
       G1: g1,
       G2: g2,
@@ -385,30 +385,35 @@ export class PeerMeshManager {
 
   /**
    * Host toggles an unoccupied seat between human open and AI Bot archetype.
-   * @param {string} seat
+   * @param {string} seat - 'ruby', 'cyan', 'amber' or 'G1', 'G2', 'G3'
    * @param {boolean} isAI
    * @param {string} [aiType='CYCLIC_EXPLOITER']
    */
   setSeatAI(seat, isAI, aiType = 'CYCLIC_EXPLOITER') {
-    if (!this.isHost || !SEATS.includes(seat)) return;
+    if (!this.isHost) return;
+    const dieKey = seat.startsWith('G') ? seat : (FACTION_TO_GO_FIRST[seat] || 'G1');
+    const factionKey = GO_FIRST_TO_FACTION[dieKey] || 'ruby';
 
-    if (isAI) {
-      this.seats[seat] = {
-        peerId: null,
-        name: `Bot (${aiType.replace('_', ' ')})`,
-        isAI: true,
-        aiType,
-        ready: true
-      };
-    } else {
-      this.seats[seat] = {
-        peerId: null,
-        name: 'Open Seat',
-        isAI: false,
-        aiType: null,
-        ready: false
-      };
-    }
+    const seatData = isAI ? {
+      peerId: null,
+      name: `Bot (${aiType.replace('_', ' ')})`,
+      isAI: true,
+      aiType,
+      ready: true,
+      die: dieKey,
+      faction: factionKey
+    } : {
+      peerId: null,
+      name: 'Open Seat',
+      isAI: false,
+      aiType: null,
+      ready: false,
+      die: dieKey,
+      faction: factionKey
+    };
+
+    this.seats[dieKey] = seatData;
+    this.seats[factionKey] = seatData;
     this.broadcastSeatState();
   }
 

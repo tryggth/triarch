@@ -44,8 +44,10 @@ export const FACTIONS = Object.freeze({
 
 export const GAME_PHASES = Object.freeze({
   LOBBY: 'LOBBY',
+  INITIATIVE: 'INITIATIVE',
+  TACTICAL_TURN: 'TACTICAL_TURN',
+  DEPLOY: 'DEPLOY', // Alias for TACTICAL_TURN
   DRAFT: 'DRAFT',
-  DEPLOY: 'DEPLOY',
   CLASH: 'CLASH',
   RESOLUTION: 'RESOLUTION',
   GAME_OVER: 'GAME_OVER'
@@ -99,6 +101,37 @@ export const SHARD_ITEMS = Object.freeze({
   }
 });
 
+export const MARKET_ACTIONS = Object.freeze({
+  CONCEAL: {
+    id: 'CONCEAL',
+    name: 'Conceal Stance',
+    cost: 4,
+    description: 'Zero-Knowledge SHA-256 hidden stance commitment.',
+    icon: '🔒'
+  },
+  MELEE: {
+    id: 'MELEE',
+    name: 'Melee Strike (+2 Boost)',
+    cost: 5,
+    description: 'Infuses combat die with +2 face boost in clash showdown.',
+    icon: '⚔️'
+  },
+  SHIFTER: {
+    id: 'SHIFTER',
+    name: 'Shift Matrix (+1 Boost)',
+    cost: 3,
+    description: 'Shifts combat die face values up by +1.',
+    icon: '⚡'
+  },
+  DUEL: {
+    id: 'DUEL',
+    name: 'Arena Shield',
+    cost: 6,
+    description: 'Aegis Shield tiebreaker dominance against all opponents.',
+    icon: '🛡️'
+  }
+});
+
 /**
  * Validates whether a state transition is legal according to the phase machine.
  * @param {string} currentPhase
@@ -107,12 +140,14 @@ export const SHARD_ITEMS = Object.freeze({
  */
 export function isValidPhaseTransition(currentPhase, targetPhase) {
   const transitions = {
-    [GAME_PHASES.LOBBY]: [GAME_PHASES.DRAFT, GAME_PHASES.DEPLOY],
-    [GAME_PHASES.DRAFT]: [GAME_PHASES.DEPLOY, GAME_PHASES.LOBBY],
-    [GAME_PHASES.DEPLOY]: [GAME_PHASES.CLASH, GAME_PHASES.DRAFT],
+    [GAME_PHASES.LOBBY]: [GAME_PHASES.INITIATIVE, GAME_PHASES.DEPLOY, GAME_PHASES.DRAFT],
+    [GAME_PHASES.INITIATIVE]: [GAME_PHASES.TACTICAL_TURN, GAME_PHASES.DEPLOY, GAME_PHASES.CLASH],
+    [GAME_PHASES.TACTICAL_TURN]: [GAME_PHASES.TACTICAL_TURN, GAME_PHASES.CLASH, GAME_PHASES.RESOLUTION],
+    [GAME_PHASES.DEPLOY]: [GAME_PHASES.TACTICAL_TURN, GAME_PHASES.CLASH, GAME_PHASES.DRAFT],
+    [GAME_PHASES.DRAFT]: [GAME_PHASES.DEPLOY, GAME_PHASES.TACTICAL_TURN, GAME_PHASES.LOBBY],
     [GAME_PHASES.CLASH]: [GAME_PHASES.RESOLUTION],
-    [GAME_PHASES.RESOLUTION]: [GAME_PHASES.DEPLOY, GAME_PHASES.DRAFT, GAME_PHASES.GAME_OVER],
-    [GAME_PHASES.GAME_OVER]: [GAME_PHASES.LOBBY, GAME_PHASES.DEPLOY]
+    [GAME_PHASES.RESOLUTION]: [GAME_PHASES.INITIATIVE, GAME_PHASES.DEPLOY, GAME_PHASES.GAME_OVER, GAME_PHASES.LOBBY],
+    [GAME_PHASES.GAME_OVER]: [GAME_PHASES.LOBBY, GAME_PHASES.INITIATIVE, GAME_PHASES.DEPLOY]
   };
 
   return (transitions[currentPhase] || []).includes(targetPhase);

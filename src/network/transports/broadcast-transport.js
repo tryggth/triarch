@@ -21,6 +21,9 @@ export class BroadcastSignalingTransport extends BaseTransport {
     if (typeof BroadcastChannel !== 'undefined') {
       this.bc = new BroadcastChannel(this.channelName);
       this.bc.onmessage = (event) => this._handleMessage(event.data);
+      if (typeof this.bc.unref === 'function') {
+        this.bc.unref();
+      }
     } else {
       this.bc = null;
     }

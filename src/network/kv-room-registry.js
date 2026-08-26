@@ -9,6 +9,7 @@ import { globalDiscoveryBus, DISCOVERY_ACTIONS } from './discovery-bus.js';
 
 export const KV_BUCKET_NAME = 'TRIARCH_ROOMS';
 export const KV_ROOM_TTL_SECONDS = 3600; // 1 hour auto-expiry in NATS KV
+export const KV_MAX_VALUE_SIZE = 2048; // Compact room descriptor limit (bytes)
 export const ROOM_STALE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes stale pruning in lobby
 
 export class KvRoomRegistry {
@@ -169,18 +170,25 @@ export class KvRoomRegistry {
     if (count === 0) count = 1;
 
     const isFull = count >= 3;
-    const status = isFull ? 'ACTIVE' : 'WAITING';
+    const status = isFull ? 'ACTIVE' : (rawData.status || 'WAITING');
     const roomCode = (rawData.roomCode || 'TR-XXXX').toUpperCase();
+    const now = Date.now();
+    const createdAt = rawData.createdAt || now;
+    const updatedAt = rawData.updatedAt || createdAt;
+    const lastSeen = rawData.lastSeen || updatedAt;
 
     return {
       roomCode,
       gameName: rawData.gameName || `${roomCode} Arena`,
       hostPeerId: rawData.hostPeerId || 'peer_host',
+      round: rawData.round || 1,
+      phase: rawData.phase || 'INITIATIVE',
       status,
       playerCount: count,
       isFull,
-      createdAt: rawData.createdAt || Date.now(),
-      lastSeen: rawData.lastSeen || Date.now(),
+      createdAt,
+      updatedAt,
+      lastSeen,
       seats: {
         G1: g1,
         G2: g2,
@@ -203,10 +211,17 @@ export class KvRoomRegistry {
   async createRoom(roomCode, hostPeerId, initialData = {}) {
     const code = roomCode.toUpperCase();
     const hostDie = initialData.hostDie || 'G1';
-    const hostName = initialData.hostName || 'Player 1 (Host)';
+    const hostName = initialData.hostName || initialData.seats?.ruby?.name || initialData.seats?.G1?.name || 'Player 1 (Host)';
 
     const seatsInit = {
-      [hostDie]: { peerId: hostPeerId, name: hostName, claimed: true, isAI: false }
+      ...(initialData.seats || {}),
+      [hostDie]: {
+        peerId: hostPeerId,
+        name: hostName,
+        claimed: true,
+        isAI: false,
+        ...(initialData.seats?.[hostDie] || initialData.seats?.ruby || {})
+      }
     };
 
     const descriptor = this.formatDescriptor({
@@ -215,8 +230,9 @@ export class KvRoomRegistry {
       hostPeerId,
       status: 'WAITING',
       seats: seatsInit,
-      createdAt: Date.now(),
-      lastSeen: Date.now()
+      createdAt: initialData.createdAt || Date.now(),
+      updatedAt: initialData.updatedAt || Date.now(),
+      lastSeen: initialData.lastSeen || Date.now()
     });
 
     const key = KvRoomRegistry.getRoomKey(code);

@@ -107,6 +107,58 @@ export class NetworkGameStateAdapter {
   }
 
   /**
+   * Triggers Phase 1 Initiative Roll for all 3 Go-First dice.
+   */
+  rollInitiative() {
+    const record = this.game.rollInitiative();
+
+    if (this.isMultiplayer) {
+      const envelope = createActionEnvelope(ACTION_TYPES.INITIATIVE_ROLL, null, {
+        round: this.game.roundNumber,
+        rolls: record.rolls,
+        initiativeOrder: record.initiativeOrder
+      }, { peerId: this.mesh.peerId, round: this.game.roundNumber });
+
+      this.mesh.broadcastAction(envelope);
+    }
+
+    return record;
+  }
+
+  /**
+   * Commits tactical turn for local player (energy spend, market modifiers, die choice).
+   * @param {Object} options
+   */
+  async commitTacticalTurn(options = {}) {
+    const seat = this.mesh.getLocalFaction();
+    const isConcealed = options.isConcealed || false;
+
+    let commitmentHash = null;
+    if (isConcealed && options.dieId) {
+      const { action, secret } = await createDraftCommitment(seat, options.dieId);
+      this.localConcealedSecret = secret;
+      this.peerCommitments.set(seat, secret.commitment);
+      commitmentHash = secret.commitment;
+    }
+
+    const success = this.game.commitTacticalTurn(seat, options);
+
+    if (success && this.isMultiplayer) {
+      const envelope = createActionEnvelope(ACTION_TYPES.TACTICAL_COMMIT, seat, {
+        spentEnergy: options.spentEnergy || 0,
+        modifiers: options.modifiers || [],
+        dieId: isConcealed ? null : options.dieId,
+        commitment: commitmentHash,
+        turnIndex: this.game.currentTurnIndex - 1
+      }, { peerId: this.mesh.peerId, round: this.game.roundNumber });
+
+      this.mesh.broadcastAction(envelope);
+    }
+
+    return success;
+  }
+
+  /**
    * Dispatches local player die selection (open or concealed).
    * @param {string} dieId
    * @param {boolean} [isConcealed=false] - Stance Concealment (Costs 4 Shards or Secret Draft)
@@ -195,8 +247,9 @@ export class NetworkGameStateAdapter {
       const clashRecord = this.game.executeClash();
 
       if (this.isMultiplayer && this.mesh.isHost) {
-        const envelope = createActionEnvelope(ACTION_TYPES.CLASH_ROLL, null, {
+        const envelope = createActionEnvelope(ACTION_TYPES.CLASH_RESOLVE, null, {
           round: clashRecord.roundNumber,
+          pot: clashRecord.pot,
           rolls: clashRecord.rolls,
           winnerId: clashRecord.winnerId,
           reason: clashRecord.reason,
@@ -220,6 +273,36 @@ export class NetworkGameStateAdapter {
     const { type, seat, payload } = envelope;
 
     switch (type) {
+      case ACTION_TYPES.INITIATIVE_ROLL: {
+        if (payload.rolls && payload.initiativeOrder) {
+          this.game.initiativeRolls = payload.rolls;
+          for (const s of ['ruby', 'cyan', 'amber']) {
+            if (payload.rolls[s] != null) {
+              this.game.players[s].lastRoll = payload.rolls[s];
+              this.game.players[s].energy = payload.rolls[s];
+              this.game.players[s].staked = 0;
+            }
+          }
+          this.game.initiativeOrder = payload.initiativeOrder;
+          this.game.currentTurnIndex = 0;
+          this.game.phase = GAME_PHASES.TACTICAL_TURN;
+          this.game.notify();
+          toast.show('🎲 Initiative Rolled! Pole positions locked.', 'info', 2500);
+        }
+        break;
+      }
+
+      case ACTION_TYPES.TACTICAL_COMMIT: {
+        if (seat) {
+          if (payload.commitment) {
+            this.peerCommitments.set(seat, payload.commitment);
+          }
+          this.game.commitTacticalTurn(seat, payload);
+          toast.show(`⚡ ${this.game.players[seat]?.name || seat} locked tactical stance!`, 'info', 2000);
+        }
+        break;
+      }
+
       case ACTION_TYPES.DRAFT_COMMIT: {
         if (seat && payload.commitment) {
           this.peerCommitments.set(seat, payload.commitment);
@@ -269,6 +352,7 @@ export class NetworkGameStateAdapter {
         break;
       }
 
+      case ACTION_TYPES.CLASH_RESOLVE:
       case ACTION_TYPES.CLASH_ROLL: {
         // Non-host peers receive synchronized roll outcome from host
         if (!this.mesh.isHost && payload.rolls) {
@@ -283,10 +367,14 @@ export class NetworkGameStateAdapter {
             this.game.players.cyan.score = payload.scores.cyan;
             this.game.players.amber.score = payload.scores.amber;
           }
+          if (payload.pot != null) {
+            this.game.roundPot = payload.pot;
+          }
 
           this.game.phase = GAME_PHASES.RESOLUTION;
           this.game.lastClashResult = {
             roundNumber: payload.round,
+            pot: payload.pot || this.game.roundPot,
             rolls: payload.rolls,
             winnerId: payload.winnerId,
             winnerName: payload.winnerId ? this.game.players[payload.winnerId]?.name : 'Tie',

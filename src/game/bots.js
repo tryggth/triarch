@@ -122,4 +122,35 @@ export class BotStrategy {
 
     return null;
   }
+
+  /**
+   * Decides tactical turn actions (energy spending on market modifiers and die selection).
+   * @param {import('./state.js').PlayerState} botPlayer
+   * @param {import('./state.js').GameState} gameState
+   * @returns {{ spentEnergy: number, modifiers: string[], dieId: string }}
+   */
+  static decideTacticalTurn(botPlayer, gameState) {
+    const energy = botPlayer.energy || 0;
+    const modifiers = [];
+    let spent = 0;
+
+    // AI spends energy intelligently based on pool
+    if (energy >= 5 && Math.random() > 0.4) {
+      modifiers.push('MELEE'); // 5E
+      spent += 5;
+    } else if (energy >= 3 && Math.random() > 0.4) {
+      modifiers.push('SHIFTER'); // 3E
+      spent += 3;
+    }
+
+    const availableDice = gameState.players ? Object.values(gameState.players).map(p => p.currentDie) : [];
+    const dieIdx = this.selectDie(botPlayer, availableDice.length ? availableDice : [botPlayer.currentDie], gameState);
+    const chosenDie = (availableDice.length ? availableDice[dieIdx] : botPlayer.currentDie) || botPlayer.currentDie;
+
+    return {
+      spentEnergy: spent,
+      modifiers,
+      dieId: chosenDie.id
+    };
+  }
 }

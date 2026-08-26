@@ -31,7 +31,17 @@ export class BoardStageManager {
         <!-- Battlefield Arena Content Layer -->
         <div class="relative z-10 space-y-6">
           
-          <!-- 3D Tumbling Combat Dice Stage -->
+          <!-- Stage Header & Pot Display -->
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <div id="stage-phase-tag" class="text-xs font-mono font-bold uppercase tracking-wider text-indigo-400 flex items-center gap-1.5">
+              <span>🎲</span> Phase 1: Initiative
+            </div>
+            <div id="stage-pot-badge" class="hidden text-xs font-mono font-bold px-3 py-1 rounded-full bg-amber-950/80 border border-amber-500/50 text-amber-300 shadow-[0_0_15px_#facc1530] flex items-center gap-1.5">
+              <span>💰</span> Arena Pot: <span id="stage-pot-amount">0</span> VP
+            </div>
+          </div>
+
+          <!-- 3D Tumbling Dice Stage -->
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-6 sm:gap-8 items-center justify-items-center py-4">
             <div id="stage-die-ruby" class="flex flex-col items-center gap-3"></div>
             <div id="stage-die-cyan" class="flex flex-col items-center gap-3"></div>
@@ -50,8 +60,8 @@ export class BoardStageManager {
     this.diceCubes.ruby = new CSS3DDiceCube(
       this.container.querySelector('#stage-die-ruby'),
       'ruby',
-      'Ruby Archon (A)',
-      [2, 2, 4, 4, 9, 9],
+      'Ruby Archon (G1)',
+      [1, 5, 10, 11, 13, 17],
       '#fb7185',
       'from-rose-500 to-rose-700'
     );
@@ -59,8 +69,8 @@ export class BoardStageManager {
     this.diceCubes.cyan = new CSS3DDiceCube(
       this.container.querySelector('#stage-die-cyan'),
       'cyan',
-      'Cyan Sentinel (B)',
-      [1, 1, 6, 6, 8, 8],
+      'Cyan Sentinel (G2)',
+      [3, 4, 7, 12, 15, 16],
       '#22d3ee',
       'from-cyan-500 to-cyan-700'
     );
@@ -68,11 +78,71 @@ export class BoardStageManager {
     this.diceCubes.amber = new CSS3DDiceCube(
       this.container.querySelector('#stage-die-amber'),
       'amber',
-      'Amber Keeper (C)',
-      [3, 3, 5, 5, 7, 7],
+      'Amber Keeper (G3)',
+      [2, 6, 8, 9, 14, 18],
       '#facc15',
       'from-amber-400 to-amber-600'
     );
+  }
+
+  /**
+   * Updates dice cube faces and header for the active phase.
+   * @param {string} phase
+   * @param {Object} players
+   * @param {number} pot
+   */
+  updateForPhase(phase, players = {}, pot = 0) {
+    const phaseTag = this.container.querySelector('#stage-phase-tag');
+    const potBadge = this.container.querySelector('#stage-pot-badge');
+    const potAmount = this.container.querySelector('#stage-pot-amount');
+
+    if (phase === 'INITIATIVE') {
+      if (phaseTag) phaseTag.innerHTML = '<span>🎲</span> Phase 1: Go-First Initiative';
+      if (potBadge) potBadge.classList.add('hidden');
+
+      // Set to Go-First dice
+      this.diceCubes.ruby.updateDice([1, 5, 10, 11, 13, 17], 'Ruby Archon (G1)', '#fb7185', 'from-rose-500 to-rose-700');
+      this.diceCubes.cyan.updateDice([3, 4, 7, 12, 15, 16], 'Cyan Sentinel (G2)', '#22d3ee', 'from-cyan-500 to-cyan-700');
+      this.diceCubes.amber.updateDice([2, 6, 8, 9, 14, 18], 'Amber Keeper (G3)', '#facc15', 'from-amber-400 to-amber-600');
+    } else {
+      if (phaseTag) phaseTag.innerHTML = '<span>⚔️</span> Phase 2: Tactical Clash';
+      if (potBadge) {
+        potBadge.classList.remove('hidden');
+        if (potAmount) potAmount.textContent = pot;
+      }
+
+      // Set to selected Combat dice
+      if (players.ruby?.currentDie) {
+        this.diceCubes.ruby.updateDice(players.ruby.currentDie.faces, players.ruby.currentDie.name, '#fb7185', 'from-rose-500 to-rose-700');
+      }
+      if (players.cyan?.currentDie) {
+        this.diceCubes.cyan.updateDice(players.cyan.currentDie.faces, players.cyan.currentDie.name, '#22d3ee', 'from-cyan-500 to-cyan-700');
+      }
+      if (players.amber?.currentDie) {
+        this.diceCubes.amber.updateDice(players.amber.currentDie.faces, players.amber.currentDie.name, '#facc15', 'from-amber-400 to-amber-600');
+      }
+    }
+  }
+
+  /**
+   * Animates 3D tumbling initiative roll.
+   * @param {Object} rolls
+   * @param {Function} onComplete
+   */
+  async rollInitiativeShowdown(rolls, onComplete) {
+    this.setWatermarkActive(true);
+    sfx.playDiceRoll();
+    haptics.roll();
+
+    const pRuby = this.diceCubes.ruby.rollToFace(rolls.ruby);
+    const pCyan = this.diceCubes.cyan.rollToFace(rolls.cyan);
+    const pAmber = this.diceCubes.amber.rollToFace(rolls.amber);
+
+    await Promise.all([pRuby, pCyan, pAmber]);
+    this.setWatermarkActive(false);
+    haptics.impact();
+
+    if (onComplete) onComplete();
   }
 
   /**
@@ -148,6 +218,14 @@ export class CSS3DDiceCube {
     this.gradient = gradientClass;
     this.currentRoll = faces[0];
 
+    this.render();
+  }
+
+  updateDice(faces, name, accentColor, gradientClass) {
+    this.faces = faces;
+    this.name = name;
+    this.accent = accentColor;
+    this.gradient = gradientClass;
     this.render();
   }
 

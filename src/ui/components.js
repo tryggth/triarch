@@ -85,27 +85,49 @@ export function renderPlayerHUDHTML(player, networkMeta = {}) {
 
   const isConcealed = networkMeta.isConcealed;
   const latency = networkMeta.latency;
+  const polePos = networkMeta.polePosition; // 1, 2, 3
+  const isTurn = networkMeta.isCurrentTurn;
+  const phase = networkMeta.phase;
+
+  const poleBadge = polePos ? `
+    <span class="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold ${
+      polePos === 1 ? 'bg-amber-500/20 border border-amber-400/50 text-amber-300' :
+      polePos === 2 ? 'bg-slate-700/50 border border-slate-500/50 text-slate-200' :
+      'bg-amber-950/30 border border-amber-800/40 text-amber-500'
+    }">
+      ${polePos === 1 ? '🥇 1st' : polePos === 2 ? '🥈 2nd' : '🥉 3rd'}
+    </span>
+  ` : '';
+
+  const activeTurnBorder = isTurn ? 'ring-2 ring-amber-400 shadow-[0_0_25px_#facc1540] animate-pulse' : '';
 
   return `
-    <div class="player-hud relative p-4 rounded-2xl border ${f.borderClass} bg-gradient-to-b ${f.bgGradient} backdrop-blur-md shadow-xl transition-all duration-300">
+    <div class="player-hud relative p-4 rounded-2xl border ${f.borderClass} ${activeTurnBorder} bg-gradient-to-b ${f.bgGradient} backdrop-blur-md shadow-xl transition-all duration-300">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2.5">
           <div class="w-8 h-8 rounded-xl flex items-center justify-center text-lg bg-slate-900/80 border border-slate-700 shadow-inner">
             ${f.symbol}
           </div>
           <div>
-            <h3 class="text-sm font-bold text-slate-100 flex items-center gap-1.5">
-              ${player.name}
-              ${player.isAI 
-                ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">🤖 BOT</span>' 
-                : (networkMeta.isLocal 
-                    ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 font-mono">👤 YOU</span>'
-                    : `<span class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-950 text-indigo-300 font-mono flex items-center gap-1">🟢 PEER ${latency ? `(${latency}ms)` : ''}</span>`
-                  )
-              }
-            </h3>
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <h3 class="text-sm font-bold text-slate-100 flex items-center gap-1.5">
+                ${player.name}
+                ${player.isAI 
+                  ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">🤖 BOT</span>' 
+                  : (networkMeta.isLocal 
+                      ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 font-mono">👤 YOU</span>'
+                      : `<span class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-950 text-indigo-300 font-mono flex items-center gap-1">🟢 PEER ${latency ? `(${latency}ms)` : ''}</span>`
+                    )
+                }
+              </h3>
+              ${poleBadge}
+              ${isTurn ? '<span class="text-[9px] px-1.5 py-0.5 rounded bg-amber-500 text-slate-950 font-black font-mono uppercase tracking-wider">ACTIVE</span>' : ''}
+            </div>
             <div class="text-[11px] text-slate-400 font-mono">
-              ${isConcealed ? '🔒 Secret Stance (SHA-256)' : player.currentDie.name}
+              ${phase === 'INITIATIVE' 
+                ? `${player.goFirstDie?.name || 'Go-First'} ${player.goFirstDie?.toFaceString() || ''}`
+                : (isConcealed ? '🔒 Secret Stance (SHA-256)' : player.currentDie.name)
+              }
             </div>
           </div>
         </div>
@@ -117,14 +139,29 @@ export function renderPlayerHUDHTML(player, networkMeta = {}) {
 
       <div class="mt-3 pt-3 border-t border-slate-800/60 flex items-center justify-between text-xs">
         <div class="flex items-center gap-1.5">
+          <span class="text-[11px] text-slate-400">Energy:</span>
+          <span class="font-mono font-bold text-amber-300 text-xs">⚡ ${player.energy ?? 0}</span>
+          ${player.staked > 0 ? `<span class="text-[10px] font-mono text-slate-400">(-${player.staked})</span>` : ''}
+        </div>
+        <div class="flex items-center gap-1.5">
           <span class="text-[11px] text-slate-400">Shards:</span>
           <div class="flex gap-1">${shardsBadges}</div>
         </div>
         <div class="flex items-center gap-1.5">
-          <span class="text-[11px] text-slate-400">Dominance:</span>
+          <span class="text-[11px] text-slate-400">Dom:</span>
           <div class="flex gap-1">${scorePips}</div>
         </div>
       </div>
+
+      ${player.marketModifiers && player.marketModifiers.length > 0 ? `
+        <div class="mt-2 flex flex-wrap gap-1">
+          ${player.marketModifiers.map(m => `
+            <span class="text-[10px] px-2 py-0.5 rounded-md bg-indigo-900/60 border border-indigo-500/40 text-indigo-200 font-mono">
+              ${m === 'MELEE' ? '⚔️ Melee (+2)' : m === 'SHIFTER' ? '⚡ Shifter (+1)' : m === 'DUEL' ? '🛡️ Shield' : m}
+            </span>
+          `).join('')}
+        </div>
+      ` : ''}
 
       ${player.activeShard ? `
         <div class="mt-2 text-[11px] px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 font-mono flex items-center gap-1">

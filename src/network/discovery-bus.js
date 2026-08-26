@@ -27,6 +27,9 @@ export class LobbyDiscoveryBus {
       try {
         this.bc = new BroadcastChannel(LOBBY_GLOBAL_CHANNEL);
         this.bc.onmessage = (event) => this._handleMessage(event.data);
+        if (typeof this.bc.unref === 'function') {
+          this.bc.unref();
+        }
       } catch (e) {
         this.bc = null;
       }

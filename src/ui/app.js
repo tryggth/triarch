@@ -568,10 +568,66 @@ class TriarchApp {
       });
     }
 
-    // Clash Button
-    const rollBtn = document.getElementById('btn-arena-roll');
-    if (rollBtn) {
-      rollBtn.addEventListener('click', () => this.handleArenaRoll());
+    this.localTacticalModifiers = new Set();
+
+    // Phase 1: Initiative Roll Button
+    const btnInitiative = document.getElementById('btn-arena-initiative');
+    if (btnInitiative) {
+      btnInitiative.addEventListener('click', () => this.handleInitiativeRoll());
+    }
+
+    // Phase 2: Tactical Market Buttons
+    const btnMelee = document.getElementById('btn-market-melee');
+    const btnShifter = document.getElementById('btn-market-shifter');
+    const btnDuel = document.getElementById('btn-market-duel');
+    const btnConceal = document.getElementById('btn-market-conceal');
+    const btnCommit = document.getElementById('btn-tactical-commit');
+
+    const updateMarketButtonsUI = () => {
+      if (btnMelee) btnMelee.classList.toggle('ring-2', this.localTacticalModifiers.has('MELEE'));
+      if (btnShifter) btnShifter.classList.toggle('ring-2', this.localTacticalModifiers.has('SHIFTER'));
+      if (btnDuel) btnDuel.classList.toggle('ring-2', this.localTacticalModifiers.has('DUEL'));
+      if (btnConceal) btnConceal.classList.toggle('ring-2', this.localTacticalModifiers.has('CONCEAL'));
+    };
+
+    if (btnMelee) {
+      btnMelee.addEventListener('click', () => {
+        sfx.playClick();
+        if (this.localTacticalModifiers.has('MELEE')) this.localTacticalModifiers.delete('MELEE');
+        else this.localTacticalModifiers.add('MELEE');
+        updateMarketButtonsUI();
+      });
+    }
+
+    if (btnShifter) {
+      btnShifter.addEventListener('click', () => {
+        sfx.playClick();
+        if (this.localTacticalModifiers.has('SHIFTER')) this.localTacticalModifiers.delete('SHIFTER');
+        else this.localTacticalModifiers.add('SHIFTER');
+        updateMarketButtonsUI();
+      });
+    }
+
+    if (btnDuel) {
+      btnDuel.addEventListener('click', () => {
+        sfx.playClick();
+        if (this.localTacticalModifiers.has('DUEL')) this.localTacticalModifiers.delete('DUEL');
+        else this.localTacticalModifiers.add('DUEL');
+        updateMarketButtonsUI();
+      });
+    }
+
+    if (btnConceal) {
+      btnConceal.addEventListener('click', () => {
+        sfx.playClick();
+        if (this.localTacticalModifiers.has('CONCEAL')) this.localTacticalModifiers.delete('CONCEAL');
+        else this.localTacticalModifiers.add('CONCEAL');
+        updateMarketButtonsUI();
+      });
+    }
+
+    if (btnCommit) {
+      btnCommit.addEventListener('click', () => this.handleTacticalCommit());
     }
 
     // Next Round Button
@@ -580,6 +636,7 @@ class TriarchApp {
       nextBtn.addEventListener('click', () => {
         sfx.playClick();
         if (this.boardStage) this.boardStage.hideResult();
+        this.localTacticalModifiers.clear();
         this.game.nextRound();
       });
     }
@@ -590,86 +647,93 @@ class TriarchApp {
       resetBtn.addEventListener('click', () => {
         sfx.playClick();
         if (this.boardStage) this.boardStage.hideResult();
+        this.localTacticalModifiers.clear();
         this.game.endMatch();
         toast.show('Match ended. Returned to lobby portal.', 'info', 2000);
       });
     }
+  }
 
-    // Shard Power-Up Buttons
-    const btnShardMight = document.getElementById('btn-shard-might');
-    const btnShardShield = document.getElementById('btn-shard-shield');
-    const btnStanceConceal = document.getElementById('btn-stance-conceal');
+  async handleInitiativeRoll() {
+    const btn = document.getElementById('btn-arena-initiative');
+    if (btn) btn.disabled = true;
 
-    if (btnShardMight) {
-      btnShardMight.addEventListener('click', () => {
-        sfx.playClick();
-        const success = this.net.activateShard('MIGHT');
-        if (success) {
-          const seat = this.mesh.getLocalFaction();
-          const active = this.game.players[seat].activeShard === 'MIGHT';
-          toast.show(active ? '⚡ Vortex Shard activated (+1 Face Boost)!' : 'Vortex Shard deactivated.', 'info', 2000);
-        } else {
-          toast.show('Not enough Shards for Vortex Boost (Costs 1 Shard)', 'warning', 2500);
-        }
-      });
+    const record = this.net.rollInitiative();
+    if (!record) {
+      if (btn) btn.disabled = false;
+      return;
     }
 
-    if (btnShardShield) {
-      btnShardShield.addEventListener('click', () => {
-        sfx.playClick();
-        const success = this.net.activateShard('SHIELD');
-        if (success) {
-          const seat = this.mesh.getLocalFaction();
-          const active = this.game.players[seat].activeShard === 'SHIELD';
-          toast.show(active ? '🛡️ Aegis Shield activated (Wins Tiebreaks)!' : 'Aegis Shield deactivated.', 'info', 2000);
-        } else {
-          toast.show('Not enough Shards for Aegis Shield (Costs 1 Shard)', 'warning', 2500);
-        }
-      });
-    }
-
-    if (btnStanceConceal) {
-      btnStanceConceal.addEventListener('click', async () => {
-        sfx.playClick();
-        const seat = this.mesh.getLocalFaction();
-        const currentDie = this.game.players[seat].currentDie;
-        await this.net.selectDie(currentDie.id, true);
+    if (this.boardStage) {
+      await this.boardStage.rollInitiativeShowdown(record.rolls, () => {
+        sfx.playDominanceChime();
+        const p1 = this.game.players[record.initiativeOrder[0]]?.name || '1st';
+        toast.show(`🎲 Initiative Locked! ${p1} takes 1st Pole Position!`, 'success', 3000);
+        if (btn) btn.disabled = false;
       });
     }
   }
 
-  async handleArenaRoll() {
-    const rollBtn = document.getElementById('btn-arena-roll');
-    if (rollBtn) rollBtn.disabled = true;
+  async handleTacticalCommit() {
+    const btn = document.getElementById('btn-tactical-commit');
+    if (btn) btn.disabled = true;
 
-    // Execute game clash via network adapter
-    const clashRecord = await this.net.executeClash();
-    if (!clashRecord) {
-      if (rollBtn) rollBtn.disabled = false;
+    const seat = this.mesh.getLocalFaction();
+    const player = this.game.players[seat];
+    if (!player) {
+      if (btn) btn.disabled = false;
       return;
     }
 
-    // Trigger 3D Tumbling Cube Showdown on the Board Stage
-    if (this.boardStage) {
-      await this.boardStage.rollCombatShowdown(clashRecord.rolls, () => {
+    // Calculate energy cost of selected modifiers
+    const costs = { MELEE: 5, SHIFTER: 3, DUEL: 6, CONCEAL: 4 };
+    const modifiers = Array.from(this.localTacticalModifiers);
+    const totalCost = modifiers.reduce((sum, m) => sum + (costs[m] || 0), 0);
+
+    if (totalCost > player.energy) {
+      toast.show(`Not enough Energy! Selected actions cost ${totalCost}E, but you have ${player.energy}E.`, 'warning', 3000);
+      if (btn) btn.disabled = false;
+      return;
+    }
+
+    const selectEl = document.getElementById('select-tactical-die');
+    const dieId = selectEl ? selectEl.value : player.currentDie.id;
+    const isConcealed = this.localTacticalModifiers.has('CONCEAL');
+
+    await this.net.commitTacticalTurn({
+      spentEnergy: totalCost,
+      modifiers,
+      dieId,
+      isConcealed
+    });
+
+    this.localTacticalModifiers.clear();
+    const btnMelee = document.getElementById('btn-market-melee');
+    const btnShifter = document.getElementById('btn-market-shifter');
+    const btnDuel = document.getElementById('btn-market-duel');
+    const btnConceal = document.getElementById('btn-market-conceal');
+    if (btnMelee) btnMelee.classList.remove('ring-2');
+    if (btnShifter) btnShifter.classList.remove('ring-2');
+    if (btnDuel) btnDuel.classList.remove('ring-2');
+    if (btnConceal) btnConceal.classList.remove('ring-2');
+
+    toast.show(`Stance locked! Spent ${totalCost} Energy.`, 'info', 2000);
+
+    // If clash triggered on 3rd turn
+    if (this.game.lastClashResult && this.boardStage) {
+      await this.boardStage.rollCombatShowdown(this.game.lastClashResult.rolls, () => {
         sfx.playClash();
-        if (clashRecord.winnerId) {
+        if (this.game.lastClashResult.winnerId) {
           sfx.playDominanceChime();
-          toast.show(clashRecord.reason, clashRecord.winnerId === this.mesh.getLocalFaction() ? 'success' : 'info', 3000);
+          toast.show(this.game.lastClashResult.reason, this.game.lastClashResult.winnerId === seat ? 'success' : 'info', 3500);
         } else {
-          toast.show(clashRecord.reason, 'warning', 3000);
+          toast.show(this.game.lastClashResult.reason, 'warning', 3500);
         }
-        this.boardStage.showResult(clashRecord.reason, clashRecord.winnerId);
-        if (rollBtn) rollBtn.disabled = false;
+        this.boardStage.showResult(this.game.lastClashResult.reason, this.game.lastClashResult.winnerId);
       });
     }
 
-    // Highlight winning directed edge on the live cyclic graph (if in lab mode)
-    if (clashRecord.winnerId && this.graphRenderer && this.isLabMode) {
-      if (clashRecord.winnerId === 'ruby') this.graphRenderer.highlightEdge('ruby', 'cyan');
-      else if (clashRecord.winnerId === 'cyan') this.graphRenderer.highlightEdge('cyan', 'amber');
-      else if (clashRecord.winnerId === 'amber') this.graphRenderer.highlightEdge('amber', 'ruby');
-    }
+    if (btn) btn.disabled = false;
   }
 
   renderGameState() {
@@ -685,6 +749,11 @@ class TriarchApp {
     if (welcomePortal) welcomePortal.classList.add('hidden');
     if (arenaGrid) arenaGrid.classList.remove('hidden');
 
+    // Update 3D Stage for active phase
+    if (this.boardStage) {
+      this.boardStage.updateForPhase(this.game.phase, this.game.players, this.game.roundPot);
+    }
+
     const hudRuby = document.getElementById('hud-ruby');
     const hudCyan = document.getElementById('hud-cyan');
     const hudAmber = document.getElementById('hud-amber');
@@ -694,7 +763,19 @@ class TriarchApp {
       const isConcealed = this.net.peerCommitments.has(seat) && !this.net.peerReveals.has(seat) && !isLocal;
       const peerId = this.mesh.seats[seat]?.peerId;
       const latency = peerId ? this.mesh.latencies.get(peerId) : null;
-      return { isLocal, isConcealed, commitment: this.net.peerCommitments.get(seat), latency };
+      const poleIdx = this.game.initiativeOrder ? this.game.initiativeOrder.indexOf(seat) : -1;
+      const polePosition = poleIdx !== -1 ? poleIdx + 1 : null;
+      const isCurrentTurn = this.game.phase === GAME_PHASES.TACTICAL_TURN && this.game.initiativeOrder[this.game.currentTurnIndex] === seat;
+
+      return {
+        isLocal,
+        isConcealed,
+        commitment: this.net.peerCommitments.get(seat),
+        latency,
+        polePosition,
+        isCurrentTurn,
+        phase: this.game.phase
+      };
     };
 
     if (hudRuby) hudRuby.innerHTML = renderPlayerHUDHTML(this.game.players.ruby, getMeta('ruby'));
@@ -707,26 +788,45 @@ class TriarchApp {
       roundBanner.textContent = `Round ${this.game.roundNumber} / ${this.game.mode.maxRounds} — Target: ${this.game.mode.targetScore} Pts`;
     }
 
-    // Action / Next Round Controls
-    const rollBtn = document.getElementById('btn-arena-roll');
-    const nextBtn = document.getElementById('btn-arena-next');
+    // Action Dock Two-Phase View State Controller
+    const dockInitiative = document.getElementById('dock-phase-initiative');
+    const dockTactical = document.getElementById('dock-phase-tactical');
+    const dockResolution = document.getElementById('dock-phase-resolution');
+    const tacticalLocal = document.getElementById('tactical-local-controls');
+    const tacticalRemoteWait = document.getElementById('tactical-remote-wait');
+    const waitingName = document.getElementById('tactical-waiting-name');
 
-    if (this.game.phase === GAME_PHASES.DEPLOY) {
-      if (rollBtn) rollBtn.classList.remove('hidden');
-      if (nextBtn) nextBtn.classList.add('hidden');
-    } else if (this.game.phase === GAME_PHASES.RESOLUTION) {
-      if (rollBtn) rollBtn.classList.add('hidden');
-      if (nextBtn) nextBtn.classList.remove('hidden');
-    } else if (this.game.phase === GAME_PHASES.GAME_OVER) {
-      if (rollBtn) rollBtn.classList.add('hidden');
-      if (nextBtn) nextBtn.classList.add('hidden');
+    if (this.game.phase === GAME_PHASES.INITIATIVE) {
+      if (dockInitiative) dockInitiative.classList.remove('hidden');
+      if (dockTactical) dockTactical.classList.add('hidden');
+      if (dockResolution) dockResolution.classList.add('hidden');
+    } else if (this.game.phase === GAME_PHASES.TACTICAL_TURN) {
+      if (dockInitiative) dockInitiative.classList.add('hidden');
+      if (dockTactical) dockTactical.classList.remove('hidden');
+      if (dockResolution) dockResolution.classList.add('hidden');
+
+      const activeTurnSeat = this.game.initiativeOrder[this.game.currentTurnIndex];
+      const isMyTurn = activeTurnSeat === this.mesh.getLocalFaction();
+
+      if (isMyTurn) {
+        if (tacticalLocal) tacticalLocal.classList.remove('hidden');
+        if (tacticalRemoteWait) tacticalRemoteWait.classList.add('hidden');
+      } else {
+        if (tacticalLocal) tacticalLocal.classList.add('hidden');
+        if (tacticalRemoteWait) tacticalRemoteWait.classList.remove('hidden');
+        if (waitingName) waitingName.textContent = this.game.players[activeTurnSeat]?.name || activeTurnSeat;
+      }
+    } else if (this.game.phase === GAME_PHASES.RESOLUTION || this.game.phase === GAME_PHASES.GAME_OVER) {
+      if (dockInitiative) dockInitiative.classList.add('hidden');
+      if (dockTactical) dockTactical.classList.add('hidden');
+      if (dockResolution) dockResolution.classList.remove('hidden');
     }
 
     // Render Round History
     const historyContainer = document.getElementById('arena-history-list');
     if (historyContainer) {
       if (this.game.roundHistory.length === 0) {
-        historyContainer.innerHTML = `<div class="text-xs text-slate-500 font-mono text-center py-4">No clashes recorded yet. Roll to initiate combat!</div>`;
+        historyContainer.innerHTML = `<div class="text-xs text-slate-500 font-mono text-center py-4">No clashes recorded yet. Roll for initiative to begin!</div>`;
       } else {
         historyContainer.innerHTML = this.game.roundHistory.map((rec) => `
           <div class="flex items-center justify-between p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 text-xs font-mono">

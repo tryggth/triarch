@@ -21,10 +21,10 @@ describe('GameStateManager Initialization & Properties', () => {
     assert.equal(game.players.amber.score, 0);
     assert.equal(game.players.ruby.shards, 2);
 
-    // Starting match activates DEPLOY phase
+    // Starting match activates INITIATIVE phase
     game.startMatch();
     assert.equal(game.isMatchActive, true);
-    assert.equal(game.phase, GAME_PHASES.DEPLOY);
+    assert.equal(game.phase, GAME_PHASES.INITIATIVE);
 
     // Ending match returns to LOBBY
     game.endMatch();
@@ -90,7 +90,7 @@ describe('Clash Execution & Scoring', () => {
     assert.equal(game.phase, GAME_PHASES.RESOLUTION);
 
     game.nextRound();
-    assert.equal(game.phase, GAME_PHASES.DEPLOY);
+    assert.equal(game.phase, GAME_PHASES.INITIATIVE);
     assert.equal(game.roundNumber, 2);
 
     game.executeClash();

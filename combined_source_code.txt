@@ -1,7 +1,7 @@
 ================================================================================
  TRIARCH: CYCLIC EDGE - COMBINED SOURCE CODE BUNDLE
- Generated on: 2026-08-26T20:58:31.432Z
- Total Source Files: 58
+ Generated on: 2026-08-26T21:18:49.791Z
+ Total Source Files: 59
 ================================================================================
 
 
@@ -541,29 +541,63 @@ export class QRScannerHelper {
           <!-- Central Battlefield Stage with Watermark & 3D Tumbling Cubes -->
           <div id="board-stage-mount" class="relative"></div>
 
-          <!-- Action & Shard Bar -->
-          <div class="p-4 rounded-2xl border border-slate-800 bg-slate-950/70 backdrop-blur-md flex flex-col sm:flex-row items-center justify-between gap-4">
+          <!-- Action & Shard Bar (Two-Phase Dynamic Dock) -->
+          <div id="arena-action-dock" class="p-4 rounded-2xl border border-slate-800 bg-slate-950/70 backdrop-blur-md flex flex-col sm:flex-row items-center justify-between gap-4">
             
-            <!-- Shard Power-Ups & Stance Concealment -->
-            <div class="flex flex-wrap items-center gap-2 w-full sm:w-auto">
-              <span class="text-xs font-mono text-slate-400">Actions:</span>
-              <button id="btn-shard-might" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-mono text-amber-300 transition-all flex items-center justify-center gap-1" title="Costs 1 Shard: +1 Face Boost">
-                ⚡ +1 Boost
-              </button>
-              <button id="btn-shard-shield" class="px-3 py-2 rounded-xl bg-slate-800 hover:bg-slate-700 border border-slate-700 text-xs font-mono text-cyan-300 transition-all flex items-center justify-center gap-1" title="Costs 1 Shard: Wins Tiebreaks">
-                🛡️ Shield
-              </button>
-              <button id="btn-stance-conceal" class="px-3 py-2 rounded-xl bg-purple-950 hover:bg-purple-900 border border-purple-500/40 text-xs font-mono text-purple-200 transition-all flex items-center justify-center gap-1 shadow-sm" title="Zero-Knowledge SHA-256 Commit-Reveal">
-                🔒 Conceal Stance
+            <!-- Phase 1 Action Bar: Initiative Roll -->
+            <div id="dock-phase-initiative" class="w-full flex flex-col sm:flex-row items-center justify-between gap-4">
+              <div class="text-xs font-mono text-slate-300">
+                <span class="text-amber-400 font-bold">Phase 1:</span> Roll Go-First dice to claim pole position & bank energy.
+              </div>
+              <button id="btn-arena-initiative" class="w-full sm:w-auto px-8 py-3 rounded-2xl bg-gradient-to-r from-amber-500 via-rose-500 to-indigo-600 hover:opacity-95 text-white font-bold font-mono text-sm tracking-wider shadow-[0_0_30px_#f59e0b60] transition-all transform active:scale-95 flex items-center justify-center gap-2">
+                🎲 Roll for Pole Position
               </button>
             </div>
 
-            <!-- Roll & Next Round Execution Buttons -->
-            <div class="w-full sm:w-auto">
-              <button id="btn-arena-roll" class="w-full sm:w-auto px-8 py-3 rounded-2xl bg-gradient-to-r from-rose-500 via-indigo-600 to-cyan-500 hover:opacity-95 text-white font-bold font-mono text-sm tracking-wider shadow-[0_0_30px_#6366f160] transition-all transform active:scale-95">
-                🎲 ROLL CLASH
-              </button>
-              <button id="btn-arena-next" class="hidden w-full sm:w-auto px-8 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold font-mono text-sm tracking-wider shadow-[0_0_20px_#6366f180] transition-all">
+            <!-- Phase 2 Action Bar: Tactical Stance & Market Modifiers -->
+            <div id="dock-phase-tactical" class="hidden w-full flex flex-col gap-3">
+              <!-- Local Player Turn Controls -->
+              <div id="tactical-local-controls" class="flex flex-col sm:flex-row items-center justify-between gap-3 flex-wrap">
+                <div class="flex flex-wrap items-center gap-2">
+                  <span class="text-xs font-mono text-slate-400">Market:</span>
+                  <button id="btn-market-melee" class="px-3 py-2 rounded-xl bg-rose-950/80 hover:bg-rose-900 border border-rose-500/40 text-xs font-mono text-rose-200 transition-all flex items-center justify-center gap-1 shadow-sm" title="Costs 5 Energy: +2 to combat roll">
+                    ⚔️ Melee (+2) [5E]
+                  </button>
+                  <button id="btn-market-shifter" class="px-3 py-2 rounded-xl bg-amber-950/80 hover:bg-amber-900 border border-amber-500/40 text-xs font-mono text-amber-200 transition-all flex items-center justify-center gap-1 shadow-sm" title="Costs 3 Energy: +1 to combat roll">
+                    ⚡ Shift (+1) [3E]
+                  </button>
+                  <button id="btn-market-duel" class="px-3 py-2 rounded-xl bg-cyan-950/80 hover:bg-cyan-900 border border-cyan-500/40 text-xs font-mono text-cyan-200 transition-all flex items-center justify-center gap-1 shadow-sm" title="Costs 6 Energy: Aegis Shield (Wins ties)">
+                    🛡️ Shield [6E]
+                  </button>
+                  <button id="btn-market-conceal" class="px-3 py-2 rounded-xl bg-purple-950/80 hover:bg-purple-900 border border-purple-500/40 text-xs font-mono text-purple-200 transition-all flex items-center justify-center gap-1 shadow-sm" title="Costs 4 Energy: Zero-Knowledge SHA-256 hidden stance">
+                    🔒 Conceal [4E]
+                  </button>
+                </div>
+
+                <div class="flex items-center gap-2 w-full sm:w-auto justify-end">
+                  <select id="select-tactical-die" class="bg-slate-900 border border-slate-700 rounded-xl px-3 py-2 text-xs font-mono text-white focus:outline-none focus:border-indigo-500">
+                    <option value="ruby-a">🔺 Ruby (Die A: {2,2,4,4,9,9})</option>
+                    <option value="cyan-b">🔷 Cyan (Die B: {1,1,6,6,8,8})</option>
+                    <option value="amber-c">🟡 Amber (Die C: {3,3,5,5,7,7})</option>
+                  </select>
+                  <button id="btn-tactical-commit" class="px-6 py-2.5 rounded-xl bg-gradient-to-r from-emerald-600 to-teal-600 hover:opacity-95 text-white font-bold font-mono text-xs tracking-wider shadow-[0_0_20px_#10b98150] transition-all">
+                    Lock Stance ➔
+                  </button>
+                </div>
+              </div>
+
+              <!-- Remote Peer / Bot Turn Wait Indicator -->
+              <div id="tactical-remote-wait" class="hidden flex items-center justify-center py-2 px-4 rounded-xl bg-slate-900/80 border border-slate-800 text-xs font-mono text-indigo-300 animate-pulse">
+                ⏳ Waiting for <span id="tactical-waiting-name" class="font-bold text-white mx-1">Archon</span> to lock stance...
+              </div>
+            </div>
+
+            <!-- Resolution Phase: Next Round Button -->
+            <div id="dock-phase-resolution" class="hidden w-full flex items-center justify-between">
+              <div class="text-xs font-mono text-slate-300">
+                <span>🏆</span> Round concluded. Ready for the next initiative clash.
+              </div>
+              <button id="btn-arena-next" class="px-8 py-3 rounded-2xl bg-indigo-600 hover:bg-indigo-500 text-white font-bold font-mono text-sm tracking-wider shadow-[0_0_20px_#6366f180] transition-all">
                 Next Round ➔
               </button>
             </div>
@@ -1415,6 +1449,37 @@ export class BotStrategy {
 
     return null;
   }
+
+  /**
+   * Decides tactical turn actions (energy spending on market modifiers and die selection).
+   * @param {import('./state.js').PlayerState} botPlayer
+   * @param {import('./state.js').GameState} gameState
+   * @returns {{ spentEnergy: number, modifiers: string[], dieId: string }}
+   */
+  static decideTacticalTurn(botPlayer, gameState) {
+    const energy = botPlayer.energy || 0;
+    const modifiers = [];
+    let spent = 0;
+
+    // AI spends energy intelligently based on pool
+    if (energy >= 5 && Math.random() > 0.4) {
+      modifiers.push('MELEE'); // 5E
+      spent += 5;
+    } else if (energy >= 3 && Math.random() > 0.4) {
+      modifiers.push('SHIFTER'); // 3E
+      spent += 3;
+    }
+
+    const availableDice = gameState.players ? Object.values(gameState.players).map(p => p.currentDie) : [];
+    const dieIdx = this.selectDie(botPlayer, availableDice.length ? availableDice : [botPlayer.currentDie], gameState);
+    const chosenDie = (availableDice.length ? availableDice[dieIdx] : botPlayer.currentDie) || botPlayer.currentDie;
+
+    return {
+      spentEnergy: spent,
+      modifiers,
+      dieId: chosenDie.id
+    };
+  }
 }
 
 
@@ -1547,6 +1612,58 @@ export class NetworkGameStateAdapter {
   }
 
   /**
+   * Triggers Phase 1 Initiative Roll for all 3 Go-First dice.
+   */
+  rollInitiative() {
+    const record = this.game.rollInitiative();
+
+    if (this.isMultiplayer) {
+      const envelope = createActionEnvelope(ACTION_TYPES.INITIATIVE_ROLL, null, {
+        round: this.game.roundNumber,
+        rolls: record.rolls,
+        initiativeOrder: record.initiativeOrder
+      }, { peerId: this.mesh.peerId, round: this.game.roundNumber });
+
+      this.mesh.broadcastAction(envelope);
+    }
+
+    return record;
+  }
+
+  /**
+   * Commits tactical turn for local player (energy spend, market modifiers, die choice).
+   * @param {Object} options
+   */
+  async commitTacticalTurn(options = {}) {
+    const seat = this.mesh.getLocalFaction();
+    const isConcealed = options.isConcealed || false;
+
+    let commitmentHash = null;
+    if (isConcealed && options.dieId) {
+      const { action, secret } = await createDraftCommitment(seat, options.dieId);
+      this.localConcealedSecret = secret;
+      this.peerCommitments.set(seat, secret.commitment);
+      commitmentHash = secret.commitment;
+    }
+
+    const success = this.game.commitTacticalTurn(seat, options);
+
+    if (success && this.isMultiplayer) {
+      const envelope = createActionEnvelope(ACTION_TYPES.TACTICAL_COMMIT, seat, {
+        spentEnergy: options.spentEnergy || 0,
+        modifiers: options.modifiers || [],
+        dieId: isConcealed ? null : options.dieId,
+        commitment: commitmentHash,
+        turnIndex: this.game.currentTurnIndex - 1
+      }, { peerId: this.mesh.peerId, round: this.game.roundNumber });
+
+      this.mesh.broadcastAction(envelope);
+    }
+
+    return success;
+  }
+
+  /**
    * Dispatches local player die selection (open or concealed).
    * @param {string} dieId
    * @param {boolean} [isConcealed=false] - Stance Concealment (Costs 4 Shards or Secret Draft)
@@ -1635,8 +1752,9 @@ export class NetworkGameStateAdapter {
       const clashRecord = this.game.executeClash();
 
       if (this.isMultiplayer && this.mesh.isHost) {
-        const envelope = createActionEnvelope(ACTION_TYPES.CLASH_ROLL, null, {
+        const envelope = createActionEnvelope(ACTION_TYPES.CLASH_RESOLVE, null, {
           round: clashRecord.roundNumber,
+          pot: clashRecord.pot,
           rolls: clashRecord.rolls,
           winnerId: clashRecord.winnerId,
           reason: clashRecord.reason,
@@ -1660,6 +1778,36 @@ export class NetworkGameStateAdapter {
     const { type, seat, payload } = envelope;
 
     switch (type) {
+      case ACTION_TYPES.INITIATIVE_ROLL: {
+        if (payload.rolls && payload.initiativeOrder) {
+          this.game.initiativeRolls = payload.rolls;
+          for (const s of ['ruby', 'cyan', 'amber']) {
+            if (payload.rolls[s] != null) {
+              this.game.players[s].lastRoll = payload.rolls[s];
+              this.game.players[s].energy = payload.rolls[s];
+              this.game.players[s].staked = 0;
+            }
+          }
+          this.game.initiativeOrder = payload.initiativeOrder;
+          this.game.currentTurnIndex = 0;
+          this.game.phase = GAME_PHASES.TACTICAL_TURN;
+          this.game.notify();
+          toast.show('🎲 Initiative Rolled! Pole positions locked.', 'info', 2500);
+        }
+        break;
+      }
+
+      case ACTION_TYPES.TACTICAL_COMMIT: {
+        if (seat) {
+          if (payload.commitment) {
+            this.peerCommitments.set(seat, payload.commitment);
+          }
+          this.game.commitTacticalTurn(seat, payload);
+          toast.show(`⚡ ${this.game.players[seat]?.name || seat} locked tactical stance!`, 'info', 2000);
+        }
+        break;
+      }
+
       case ACTION_TYPES.DRAFT_COMMIT: {
         if (seat && payload.commitment) {
           this.peerCommitments.set(seat, payload.commitment);
@@ -1709,6 +1857,7 @@ export class NetworkGameStateAdapter {
         break;
       }
 
+      case ACTION_TYPES.CLASH_RESOLVE:
       case ACTION_TYPES.CLASH_ROLL: {
         // Non-host peers receive synchronized roll outcome from host
         if (!this.mesh.isHost && payload.rolls) {
@@ -1723,10 +1872,14 @@ export class NetworkGameStateAdapter {
             this.game.players.cyan.score = payload.scores.cyan;
             this.game.players.amber.score = payload.scores.amber;
           }
+          if (payload.pot != null) {
+            this.game.roundPot = payload.pot;
+          }
 
           this.game.phase = GAME_PHASES.RESOLUTION;
           this.game.lastClashResult = {
             roundNumber: payload.round,
+            pot: payload.pot || this.game.roundPot,
             rolls: payload.rolls,
             winnerId: payload.winnerId,
             winnerName: payload.winnerId ? this.game.players[payload.winnerId]?.name : 'Tie',
@@ -1796,8 +1949,10 @@ export const FACTIONS = Object.freeze({
 
 export const GAME_PHASES = Object.freeze({
   LOBBY: 'LOBBY',
+  INITIATIVE: 'INITIATIVE',
+  TACTICAL_TURN: 'TACTICAL_TURN',
+  DEPLOY: 'DEPLOY', // Alias for TACTICAL_TURN
   DRAFT: 'DRAFT',
-  DEPLOY: 'DEPLOY',
   CLASH: 'CLASH',
   RESOLUTION: 'RESOLUTION',
   GAME_OVER: 'GAME_OVER'
@@ -1851,6 +2006,37 @@ export const SHARD_ITEMS = Object.freeze({
   }
 });
 
+export const MARKET_ACTIONS = Object.freeze({
+  CONCEAL: {
+    id: 'CONCEAL',
+    name: 'Conceal Stance',
+    cost: 4,
+    description: 'Zero-Knowledge SHA-256 hidden stance commitment.',
+    icon: '🔒'
+  },
+  MELEE: {
+    id: 'MELEE',
+    name: 'Melee Strike (+2 Boost)',
+    cost: 5,
+    description: 'Infuses combat die with +2 face boost in clash showdown.',
+    icon: '⚔️'
+  },
+  SHIFTER: {
+    id: 'SHIFTER',
+    name: 'Shift Matrix (+1 Boost)',
+    cost: 3,
+    description: 'Shifts combat die face values up by +1.',
+    icon: '⚡'
+  },
+  DUEL: {
+    id: 'DUEL',
+    name: 'Arena Shield',
+    cost: 6,
+    description: 'Aegis Shield tiebreaker dominance against all opponents.',
+    icon: '🛡️'
+  }
+});
+
 /**
  * Validates whether a state transition is legal according to the phase machine.
  * @param {string} currentPhase
@@ -1859,12 +2045,14 @@ export const SHARD_ITEMS = Object.freeze({
  */
 export function isValidPhaseTransition(currentPhase, targetPhase) {
   const transitions = {
-    [GAME_PHASES.LOBBY]: [GAME_PHASES.DRAFT, GAME_PHASES.DEPLOY],
-    [GAME_PHASES.DRAFT]: [GAME_PHASES.DEPLOY, GAME_PHASES.LOBBY],
-    [GAME_PHASES.DEPLOY]: [GAME_PHASES.CLASH, GAME_PHASES.DRAFT],
+    [GAME_PHASES.LOBBY]: [GAME_PHASES.INITIATIVE, GAME_PHASES.DEPLOY, GAME_PHASES.DRAFT],
+    [GAME_PHASES.INITIATIVE]: [GAME_PHASES.TACTICAL_TURN, GAME_PHASES.DEPLOY, GAME_PHASES.CLASH],
+    [GAME_PHASES.TACTICAL_TURN]: [GAME_PHASES.TACTICAL_TURN, GAME_PHASES.CLASH, GAME_PHASES.RESOLUTION],
+    [GAME_PHASES.DEPLOY]: [GAME_PHASES.TACTICAL_TURN, GAME_PHASES.CLASH, GAME_PHASES.DRAFT],
+    [GAME_PHASES.DRAFT]: [GAME_PHASES.DEPLOY, GAME_PHASES.TACTICAL_TURN, GAME_PHASES.LOBBY],
     [GAME_PHASES.CLASH]: [GAME_PHASES.RESOLUTION],
-    [GAME_PHASES.RESOLUTION]: [GAME_PHASES.DEPLOY, GAME_PHASES.DRAFT, GAME_PHASES.GAME_OVER],
-    [GAME_PHASES.GAME_OVER]: [GAME_PHASES.LOBBY, GAME_PHASES.DEPLOY]
+    [GAME_PHASES.RESOLUTION]: [GAME_PHASES.INITIATIVE, GAME_PHASES.DEPLOY, GAME_PHASES.GAME_OVER, GAME_PHASES.LOBBY],
+    [GAME_PHASES.GAME_OVER]: [GAME_PHASES.LOBBY, GAME_PHASES.INITIATIVE, GAME_PHASES.DEPLOY]
   };
 
   return (transitions[currentPhase] || []).includes(targetPhase);
@@ -1876,18 +2064,14 @@ export function isValidPhaseTransition(currentPhase, targetPhase) {
  * FILE: src/game/state.js
  * ============================================================================= */
 
-/**
- * TRIARCH: Cyclic Edge - Complete Game State & Turn Engine
- * Manages player states, phase transitions, roll execution, scoring, and history logging.
- */
-
-import { TRIARCH_STANDARD, Die } from '../math/dice.js';
-import { FACTIONS, GAME_PHASES, GAME_MODES, SHARD_ITEMS, isValidPhaseTransition } from './rules.js';
+import { TRIARCH_STANDARD, GO_FIRST_DICE, Die } from '../math/dice.js';
+import { FACTIONS, GAME_PHASES, GAME_MODES, SHARD_ITEMS, MARKET_ACTIONS, isValidPhaseTransition } from './rules.js';
 import { calculatePairwiseProbabilities } from '../math/probability.js';
 import { BotStrategy } from './bots.js';
 
 export class GameStateManager {
   constructor(options = {}) {
+    this.options = { ...options };
     this.listeners = new Set();
     this.init(options);
   }
@@ -1896,24 +2080,33 @@ export class GameStateManager {
    * Initializes or resets the game state.
    */
   init(options = {}) {
-    const modeKey = options.mode || 'CYCLIC_SHOWDOWN';
+    const opts = { ...this.options, ...options };
+    const modeKey = opts.mode || 'CYCLIC_SHOWDOWN';
     this.mode = GAME_MODES[modeKey] || GAME_MODES.CYCLIC_SHOWDOWN;
-    this.isMatchActive = options.active ?? false;
-    this.phase = this.isMatchActive ? (options.phase || GAME_PHASES.DEPLOY) : (options.phase || GAME_PHASES.LOBBY);
+    this.isMatchActive = opts.active ?? false;
+    this.phase = this.isMatchActive ? (opts.phase || GAME_PHASES.INITIATIVE) : (opts.phase || GAME_PHASES.LOBBY);
     this.roundNumber = 1;
+    this.roundPot = 0;
+    this.initiativeRolls = { ruby: null, cyan: null, amber: null };
+    this.initiativeOrder = ['ruby', 'cyan', 'amber'];
+    this.currentTurnIndex = 0;
     this.winner = null;
     this.roundHistory = [];
 
-    // Initialize 3 players
+    // Initialize 3 players with assigned Go-First Fair Initiative Dice
     this.players = {
       ruby: {
         id: 'ruby',
         name: 'Ruby Archon',
         faction: FACTIONS.ruby,
-        isAI: options.rubyAI ?? false,
-        aiType: options.rubyAIType || 'CYCLIC_EXPLOITER',
+        goFirstDie: GO_FIRST_DICE.G1,
+        isAI: opts.rubyAI ?? false,
+        aiType: opts.rubyAIType || 'CYCLIC_EXPLOITER',
         score: 0,
         shards: 2,
+        energy: 0,
+        staked: 0,
+        marketModifiers: [],
         currentDie: TRIARCH_STANDARD[0],
         activeShard: null,
         lastRoll: null,
@@ -1924,10 +2117,14 @@ export class GameStateManager {
         id: 'cyan',
         name: 'Cyan Sentinel',
         faction: FACTIONS.cyan,
-        isAI: options.cyanAI ?? true,
-        aiType: options.cyanAIType || 'MAX_EV',
+        goFirstDie: GO_FIRST_DICE.G2,
+        isAI: opts.cyanAI ?? true,
+        aiType: opts.cyanAIType || 'MAX_EV',
         score: 0,
         shards: 2,
+        energy: 0,
+        staked: 0,
+        marketModifiers: [],
         currentDie: TRIARCH_STANDARD[1],
         activeShard: null,
         lastRoll: null,
@@ -1938,10 +2135,14 @@ export class GameStateManager {
         id: 'amber',
         name: 'Amber Keeper',
         faction: FACTIONS.amber,
-        isAI: options.amberAI ?? true,
-        aiType: options.amberAIType || 'SHARD_TACTICIAN',
+        goFirstDie: GO_FIRST_DICE.G3,
+        isAI: opts.amberAI ?? true,
+        aiType: opts.amberAIType || 'SHARD_TACTICIAN',
         score: 0,
         shards: 2,
+        energy: 0,
+        staked: 0,
+        marketModifiers: [],
         currentDie: TRIARCH_STANDARD[2],
         activeShard: null,
         lastRoll: null,
@@ -1955,11 +2156,11 @@ export class GameStateManager {
   }
 
   /**
-   * Starts an active match with 3 players/bots.
+   * Starts an active match with 3 players/bots in Phase 1: Initiative.
    * @param {Object} [options={}]
    */
   startMatch(options = {}) {
-    this.init({ ...options, active: true, phase: GAME_PHASES.DEPLOY });
+    this.init({ ...options, active: true, phase: GAME_PHASES.INITIATIVE });
   }
 
   /**
@@ -2036,25 +2237,139 @@ export class GameStateManager {
   }
 
   /**
-   * Triggers AI bot decisions for non-human players.
+   * Phase 1: Rolls all three Go-First Fair Initiative Dice (1..18, zero ties).
+   * Allocates initial energy, computes pole position turn order, and transitions to TACTICAL_TURN.
+   * @param {() => number} [rng=Math.random]
+   * @returns {{ rolls: Object, initiativeOrder: string[] }}
    */
-  executeAIDecisions(availableDice = TRIARCH_STANDARD) {
-    for (const player of Object.values(this.players)) {
-      if (player.isAI) {
-        const dieIdx = BotStrategy.selectDie(player, availableDice, this);
-        if (availableDice[dieIdx]) {
-          player.currentDie = availableDice[dieIdx];
-        }
+  rollInitiative(rng = Math.random) {
+    const pRuby = this.players.ruby;
+    const pCyan = this.players.cyan;
+    const pAmber = this.players.amber;
 
-        const shard = BotStrategy.decideShardActivation(player, this);
-        if (shard) {
-          this.activateShard(player.id, shard);
-        }
+    // Roll unique Go-First dice (partition of 1..18, guarantees zero ties)
+    const rR = (pRuby.goFirstDie || GO_FIRST_DICE.G1).roll(rng);
+    const rC = (pCyan.goFirstDie || GO_FIRST_DICE.G2).roll(rng);
+    const rA = (pAmber.goFirstDie || GO_FIRST_DICE.G3).roll(rng);
 
-        player.isReady = true;
+    this.initiativeRolls = { ruby: rR, cyan: rC, amber: rA };
+
+    pRuby.lastRoll = rR;
+    pRuby.energy = rR;
+    pRuby.staked = 0;
+    pRuby.marketModifiers = [];
+    pRuby.isReady = false;
+
+    pCyan.lastRoll = rC;
+    pCyan.energy = rC;
+    pCyan.staked = 0;
+    pCyan.marketModifiers = [];
+    pCyan.isReady = false;
+
+    pAmber.lastRoll = rA;
+    pAmber.energy = rA;
+    pAmber.staked = 0;
+    pAmber.marketModifiers = [];
+    pAmber.isReady = false;
+
+    // Sort descending by roll value (highest roll = 1st pole position)
+    this.initiativeOrder = ['ruby', 'cyan', 'amber'].sort((a, b) => this.players[b].energy - this.players[a].energy);
+    this.currentTurnIndex = 0;
+    this.roundPot = 0;
+
+    this.phase = GAME_PHASES.TACTICAL_TURN;
+
+    // If 1st pole position player is an AI, automatically execute its turn
+    this._handleAITacticalTurn(rng);
+
+    this.notify();
+    return {
+      rolls: this.initiativeRolls,
+      initiativeOrder: this.initiativeOrder
+    };
+  }
+
+  /**
+   * Phase 2: Commits a player's tactical turn actions (energy spend, market modifiers, and die choice).
+   * @param {string} playerId
+   * @param {Object} options
+   * @param {number} [options.spentEnergy=0]
+   * @param {string[]} [options.modifiers=[]]
+   * @param {string|null} [options.dieId=null]
+   * @param {() => number} [rng=Math.random]
+   * @returns {boolean}
+   */
+  commitTacticalTurn(playerId, options = {}, rng = Math.random) {
+    const activePlayerId = this.initiativeOrder[this.currentTurnIndex];
+    if (playerId !== activePlayerId) {
+      console.warn(`[GameState] Not ${playerId}'s turn. Active: ${activePlayerId} (turn ${this.currentTurnIndex + 1}/3)`);
+      return false;
+    }
+
+    const player = this.players[playerId];
+    if (!player) return false;
+
+    const spent = Math.min(Math.max(0, options.spentEnergy || 0), player.energy);
+    player.energy -= spent;
+    player.staked = spent;
+    player.marketModifiers = Array.isArray(options.modifiers) ? [...options.modifiers] : [];
+
+    if (options.dieId) {
+      const chosenDie = TRIARCH_STANDARD.find(d => d.id === options.dieId);
+      if (chosenDie) {
+        player.currentDie = chosenDie;
       }
     }
-    this.notify();
+
+    player.isReady = true;
+    this.currentTurnIndex += 1;
+
+    // If subsequent players are AI, handle their turns automatically
+    this._handleAITacticalTurn(rng);
+
+    // If all 3 players have committed, auto-execute the combat clash!
+    if (this.currentTurnIndex >= 3) {
+      this.roundPot = this.players.ruby.energy + this.players.cyan.energy + this.players.amber.energy;
+      this.executeClash(rng);
+    } else {
+      this.notify();
+    }
+
+    return true;
+  }
+
+  /**
+   * Automatically executes consecutive bot turns during Phase 2.
+   * @private
+   */
+  _handleAITacticalTurn(rng = Math.random) {
+    while (this.currentTurnIndex < 3) {
+      const activeId = this.initiativeOrder[this.currentTurnIndex];
+      const activePlayer = this.players[activeId];
+
+      if (!activePlayer || !activePlayer.isAI) {
+        break; // Stop at next human player
+      }
+
+      const decision = BotStrategy.decideTacticalTurn(activePlayer, this);
+      const spent = Math.min(decision.spentEnergy || 0, activePlayer.energy);
+      activePlayer.energy -= spent;
+      activePlayer.staked = spent;
+      activePlayer.marketModifiers = decision.modifiers || [];
+
+      if (decision.dieId) {
+        const d = TRIARCH_STANDARD.find(x => x.id === decision.dieId);
+        if (d) activePlayer.currentDie = d;
+      }
+
+      activePlayer.isReady = true;
+      this.currentTurnIndex += 1;
+    }
+
+    if (this.currentTurnIndex >= 3 && this.phase === GAME_PHASES.TACTICAL_TURN) {
+      this.roundPot = this.players.ruby.energy + this.players.cyan.energy + this.players.amber.energy;
+      this.executeClash(rng);
+    }
   }
 
   /**
@@ -2064,16 +2379,24 @@ export class GameStateManager {
   executeClash(rng = Math.random) {
     this.phase = GAME_PHASES.CLASH;
 
-    // AI decisions execute before roll
-    this.executeAIDecisions();
+    // 1. Calculate unspent round pot
+    this.roundPot = this.players.ruby.energy + this.players.cyan.energy + this.players.amber.energy;
 
-    // 1. Roll raw face values
+    // 2. Roll raw face values and apply market/shard modifiers
     for (const player of Object.values(this.players)) {
       const raw = player.currentDie.roll(rng);
       player.lastRoll = raw;
 
       let mod = raw;
-      // Apply Might shard (+1 Face)
+      // Melee Strike (+2)
+      if (player.marketModifiers.includes('MELEE')) {
+        mod += 2;
+      }
+      // Shifter Matrix (+1)
+      if (player.marketModifiers.includes('SHIFTER')) {
+        mod += 1;
+      }
+      // Might shard (+1 Face)
       if (player.activeShard === SHARD_ITEMS.MIGHT.id && player.shards >= SHARD_ITEMS.MIGHT.cost) {
         mod += 1;
         player.shards -= SHARD_ITEMS.MIGHT.cost;
@@ -2081,7 +2404,7 @@ export class GameStateManager {
       player.lastModifiedRoll = mod;
     }
 
-    // 2. Evaluate round resolution
+    // 3. Evaluate round resolution
     const pRuby = this.players.ruby;
     const pCyan = this.players.cyan;
     const pAmber = this.players.amber;
@@ -2102,21 +2425,21 @@ export class GameStateManager {
 
     if (leaders.length === 1) {
       roundWinner = leaders[0];
-      victoryReason = `Highest roll (${maxVal}) by ${roundWinner.name}!`;
+      victoryReason = `Highest roll (${maxVal}) by ${roundWinner.name}! Captured ${this.roundPot} Energy Pot!`;
     } else if (leaders.length === 2) {
-      // 2-way tie: Check shield or cyclic dominance edge
+      // 2-way tie: Check Duel/Shield or cyclic dominance edge
       const [l1, l2] = leaders;
-      const shield1 = l1.activeShard === SHARD_ITEMS.SHIELD.id && l1.shards >= SHARD_ITEMS.SHIELD.cost;
-      const shield2 = l2.activeShard === SHARD_ITEMS.SHIELD.id && l2.shards >= SHARD_ITEMS.SHIELD.cost;
+      const shield1 = l1.marketModifiers.includes('DUEL') || (l1.activeShard === SHARD_ITEMS.SHIELD.id && l1.shards >= SHARD_ITEMS.SHIELD.cost);
+      const shield2 = l2.marketModifiers.includes('DUEL') || (l2.activeShard === SHARD_ITEMS.SHIELD.id && l2.shards >= SHARD_ITEMS.SHIELD.cost);
 
       if (shield1 && !shield2) {
         roundWinner = l1;
-        l1.shards -= SHARD_ITEMS.SHIELD.cost;
-        victoryReason = `Aegis Shield broke the tie in favor of ${l1.name}!`;
+        if (l1.activeShard === SHARD_ITEMS.SHIELD.id) l1.shards -= SHARD_ITEMS.SHIELD.cost;
+        victoryReason = `Aegis Shield broke the tie in favor of ${l1.name}! Claimed ${this.roundPot} Energy Pot!`;
       } else if (shield2 && !shield1) {
         roundWinner = l2;
-        l2.shards -= SHARD_ITEMS.SHIELD.cost;
-        victoryReason = `Aegis Shield broke the tie in favor of ${l2.name}!`;
+        if (l2.activeShard === SHARD_ITEMS.SHIELD.id) l2.shards -= SHARD_ITEMS.SHIELD.cost;
+        victoryReason = `Aegis Shield broke the tie in favor of ${l2.name}! Claimed ${this.roundPot} Energy Pot!`;
       } else {
         // Cyclic Edge resolution: Ruby > Cyan, Cyan > Amber, Amber > Ruby
         const cyclicOrder = {
@@ -2131,7 +2454,7 @@ export class GameStateManager {
         const key = `${l1.id}-${l2.id}`;
         roundWinner = cyclicOrder[key] || l1;
         cyclicBonusApplied = true;
-        victoryReason = `Cyclic Edge resolved tie (${maxVal} vs ${maxVal}): ${roundWinner.name} holds dominance!`;
+        victoryReason = `Cyclic Edge resolved tie (${maxVal} vs ${maxVal}): ${roundWinner.name} holds dominance! Claimed ${this.roundPot} Energy Pot!`;
       }
     } else {
       // 3-way tie: Energy surge, everyone gains 1 shard, no points awarded
@@ -2143,14 +2466,15 @@ export class GameStateManager {
 
     if (roundWinner) {
       roundWinner.score += 1;
-      // Round winner gains 1 shard as victory bounty
       roundWinner.shards += 1;
     }
 
-    // Reset active shards for all players
+    // Reset active modifiers for all players
     for (const p of Object.values(this.players)) {
       p.activeShard = null;
       p.isReady = false;
+      p.marketModifiers = [];
+      p.staked = 0;
     }
 
     // Check game over
@@ -2172,6 +2496,7 @@ export class GameStateManager {
 
     const roundRecord = {
       roundNumber: this.roundNumber,
+      pot: this.roundPot,
       rolls: {
         ruby: { raw: pRuby.lastRoll, modified: pRuby.lastModifiedRoll },
         cyan: { raw: pCyan.lastRoll, modified: pCyan.lastModifiedRoll },
@@ -2203,13 +2528,21 @@ export class GameStateManager {
   }
 
   /**
-   * Advances the turn from resolution to the next deploy round.
+   * Advances the turn from resolution to the next initiative round.
    */
   nextRound() {
     if (this.phase === GAME_PHASES.GAME_OVER) return;
     this.roundNumber += 1;
-    this.phase = GAME_PHASES.DEPLOY;
+    this.phase = GAME_PHASES.INITIATIVE;
+    this.currentTurnIndex = 0;
+    this.roundPot = 0;
     this.lastClashResult = null;
+    for (const p of Object.values(this.players)) {
+      p.isReady = false;
+      p.marketModifiers = [];
+      p.staked = 0;
+      p.activeShard = null;
+    }
     this.notify();
   }
 
@@ -3275,6 +3608,9 @@ export class LobbyDiscoveryBus {
       try {
         this.bc = new BroadcastChannel(LOBBY_GLOBAL_CHANNEL);
         this.bc.onmessage = (event) => this._handleMessage(event.data);
+        if (typeof this.bc.unref === 'function') {
+          this.bc.unref();
+        }
       } catch (e) {
         this.bc = null;
       }
@@ -3500,6 +3836,7 @@ import { globalDiscoveryBus, DISCOVERY_ACTIONS } from './discovery-bus.js';
 
 export const KV_BUCKET_NAME = 'TRIARCH_ROOMS';
 export const KV_ROOM_TTL_SECONDS = 3600; // 1 hour auto-expiry in NATS KV
+export const KV_MAX_VALUE_SIZE = 2048; // Compact room descriptor limit (bytes)
 export const ROOM_STALE_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes stale pruning in lobby
 
 export class KvRoomRegistry {
@@ -3660,18 +3997,25 @@ export class KvRoomRegistry {
     if (count === 0) count = 1;
 
     const isFull = count >= 3;
-    const status = isFull ? 'ACTIVE' : 'WAITING';
+    const status = isFull ? 'ACTIVE' : (rawData.status || 'WAITING');
     const roomCode = (rawData.roomCode || 'TR-XXXX').toUpperCase();
+    const now = Date.now();
+    const createdAt = rawData.createdAt || now;
+    const updatedAt = rawData.updatedAt || createdAt;
+    const lastSeen = rawData.lastSeen || updatedAt;
 
     return {
       roomCode,
       gameName: rawData.gameName || `${roomCode} Arena`,
       hostPeerId: rawData.hostPeerId || 'peer_host',
+      round: rawData.round || 1,
+      phase: rawData.phase || 'INITIATIVE',
       status,
       playerCount: count,
       isFull,
-      createdAt: rawData.createdAt || Date.now(),
-      lastSeen: rawData.lastSeen || Date.now(),
+      createdAt,
+      updatedAt,
+      lastSeen,
       seats: {
         G1: g1,
         G2: g2,
@@ -3694,10 +4038,17 @@ export class KvRoomRegistry {
   async createRoom(roomCode, hostPeerId, initialData = {}) {
     const code = roomCode.toUpperCase();
     const hostDie = initialData.hostDie || 'G1';
-    const hostName = initialData.hostName || 'Player 1 (Host)';
+    const hostName = initialData.hostName || initialData.seats?.ruby?.name || initialData.seats?.G1?.name || 'Player 1 (Host)';
 
     const seatsInit = {
-      [hostDie]: { peerId: hostPeerId, name: hostName, claimed: true, isAI: false }
+      ...(initialData.seats || {}),
+      [hostDie]: {
+        peerId: hostPeerId,
+        name: hostName,
+        claimed: true,
+        isAI: false,
+        ...(initialData.seats?.[hostDie] || initialData.seats?.ruby || {})
+      }
     };
 
     const descriptor = this.formatDescriptor({
@@ -3706,8 +4057,9 @@ export class KvRoomRegistry {
       hostPeerId,
       status: 'WAITING',
       seats: seatsInit,
-      createdAt: Date.now(),
-      lastSeen: Date.now()
+      createdAt: initialData.createdAt || Date.now(),
+      updatedAt: initialData.updatedAt || Date.now(),
+      lastSeen: initialData.lastSeen || Date.now()
     });
 
     const key = KvRoomRegistry.getRoomKey(code);
@@ -4262,10 +4614,10 @@ export class PeerMeshManager {
   }
 
   _resetSeats() {
-    const defaultSeat = () => ({ peerId: null, name: null, isAI: false, aiType: null, ready: false });
-    const g1 = defaultSeat();
-    const g2 = defaultSeat();
-    const g3 = defaultSeat();
+    const defaultSeat = (isAI = true, aiType = 'CYCLIC_EXPLOITER') => ({ peerId: null, name: null, isAI, aiType, ready: false });
+    const g1 = defaultSeat(false, null);
+    const g2 = defaultSeat(true, 'MAX_EV');
+    const g3 = defaultSeat(true, 'SHARD_TACTICIAN');
     this.seats = {
       G1: g1,
       G2: g2,
@@ -4593,30 +4945,35 @@ export class PeerMeshManager {
 
   /**
    * Host toggles an unoccupied seat between human open and AI Bot archetype.
-   * @param {string} seat
+   * @param {string} seat - 'ruby', 'cyan', 'amber' or 'G1', 'G2', 'G3'
    * @param {boolean} isAI
    * @param {string} [aiType='CYCLIC_EXPLOITER']
    */
   setSeatAI(seat, isAI, aiType = 'CYCLIC_EXPLOITER') {
-    if (!this.isHost || !SEATS.includes(seat)) return;
+    if (!this.isHost) return;
+    const dieKey = seat.startsWith('G') ? seat : (FACTION_TO_GO_FIRST[seat] || 'G1');
+    const factionKey = GO_FIRST_TO_FACTION[dieKey] || 'ruby';
 
-    if (isAI) {
-      this.seats[seat] = {
-        peerId: null,
-        name: `Bot (${aiType.replace('_', ' ')})`,
-        isAI: true,
-        aiType,
-        ready: true
-      };
-    } else {
-      this.seats[seat] = {
-        peerId: null,
-        name: 'Open Seat',
-        isAI: false,
-        aiType: null,
-        ready: false
-      };
-    }
+    const seatData = isAI ? {
+      peerId: null,
+      name: `Bot (${aiType.replace('_', ' ')})`,
+      isAI: true,
+      aiType,
+      ready: true,
+      die: dieKey,
+      faction: factionKey
+    } : {
+      peerId: null,
+      name: 'Open Seat',
+      isAI: false,
+      aiType: null,
+      ready: false,
+      die: dieKey,
+      faction: factionKey
+    };
+
+    this.seats[dieKey] = seatData;
+    this.seats[factionKey] = seatData;
     this.broadcastSeatState();
   }
 
@@ -4721,6 +5078,9 @@ export const ACTION_TYPES = Object.freeze({
   PING: 'PING',
   PONG: 'PONG',
   GAME_START: 'GAME_START',
+  INITIATIVE_ROLL: 'INITIATIVE_ROLL',
+  TACTICAL_COMMIT: 'TACTICAL_COMMIT',
+  CLASH_RESOLVE: 'CLASH_RESOLVE',
   DRAFT_COMMIT: 'DRAFT_COMMIT',
   DRAFT_REVEAL: 'DRAFT_REVEAL',
   DRAFT_SELECT: 'DRAFT_SELECT',
@@ -5108,6 +5468,9 @@ export class BroadcastSignalingTransport extends BaseTransport {
     if (typeof BroadcastChannel !== 'undefined') {
       this.bc = new BroadcastChannel(this.channelName);
       this.bc.onmessage = (event) => this._handleMessage(event.data);
+      if (typeof this.bc.unref === 'function') {
+        this.bc.unref();
+      }
     } else {
       this.bc = null;
     }
@@ -6244,10 +6607,66 @@ class TriarchApp {
       });
     }
 
-    // Clash Button
-    const rollBtn = document.getElementById('btn-arena-roll');
-    if (rollBtn) {
-      rollBtn.addEventListener('click', () => this.handleArenaRoll());
+    this.localTacticalModifiers = new Set();
+
+    // Phase 1: Initiative Roll Button
+    const btnInitiative = document.getElementById('btn-arena-initiative');
+    if (btnInitiative) {
+      btnInitiative.addEventListener('click', () => this.handleInitiativeRoll());
+    }
+
+    // Phase 2: Tactical Market Buttons
+    const btnMelee = document.getElementById('btn-market-melee');
+    const btnShifter = document.getElementById('btn-market-shifter');
+    const btnDuel = document.getElementById('btn-market-duel');
+    const btnConceal = document.getElementById('btn-market-conceal');
+    const btnCommit = document.getElementById('btn-tactical-commit');
+
+    const updateMarketButtonsUI = () => {
+      if (btnMelee) btnMelee.classList.toggle('ring-2', this.localTacticalModifiers.has('MELEE'));
+      if (btnShifter) btnShifter.classList.toggle('ring-2', this.localTacticalModifiers.has('SHIFTER'));
+      if (btnDuel) btnDuel.classList.toggle('ring-2', this.localTacticalModifiers.has('DUEL'));
+      if (btnConceal) btnConceal.classList.toggle('ring-2', this.localTacticalModifiers.has('CONCEAL'));
+    };
+
+    if (btnMelee) {
+      btnMelee.addEventListener('click', () => {
+        sfx.playClick();
+        if (this.localTacticalModifiers.has('MELEE')) this.localTacticalModifiers.delete('MELEE');
+        else this.localTacticalModifiers.add('MELEE');
+        updateMarketButtonsUI();
+      });
+    }
+
+    if (btnShifter) {
+      btnShifter.addEventListener('click', () => {
+        sfx.playClick();
+        if (this.localTacticalModifiers.has('SHIFTER')) this.localTacticalModifiers.delete('SHIFTER');
+        else this.localTacticalModifiers.add('SHIFTER');
+        updateMarketButtonsUI();
+      });
+    }
+
+    if (btnDuel) {
+      btnDuel.addEventListener('click', () => {
+        sfx.playClick();
+        if (this.localTacticalModifiers.has('DUEL')) this.localTacticalModifiers.delete('DUEL');
+        else this.localTacticalModifiers.add('DUEL');
+        updateMarketButtonsUI();
+      });
+    }
+
+    if (btnConceal) {
+      btnConceal.addEventListener('click', () => {
+        sfx.playClick();
+        if (this.localTacticalModifiers.has('CONCEAL')) this.localTacticalModifiers.delete('CONCEAL');
+        else this.localTacticalModifiers.add('CONCEAL');
+        updateMarketButtonsUI();
+      });
+    }
+
+    if (btnCommit) {
+      btnCommit.addEventListener('click', () => this.handleTacticalCommit());
     }
 
     // Next Round Button
@@ -6256,6 +6675,7 @@ class TriarchApp {
       nextBtn.addEventListener('click', () => {
         sfx.playClick();
         if (this.boardStage) this.boardStage.hideResult();
+        this.localTacticalModifiers.clear();
         this.game.nextRound();
       });
     }
@@ -6266,86 +6686,93 @@ class TriarchApp {
       resetBtn.addEventListener('click', () => {
         sfx.playClick();
         if (this.boardStage) this.boardStage.hideResult();
+        this.localTacticalModifiers.clear();
         this.game.endMatch();
         toast.show('Match ended. Returned to lobby portal.', 'info', 2000);
       });
     }
+  }
 
-    // Shard Power-Up Buttons
-    const btnShardMight = document.getElementById('btn-shard-might');
-    const btnShardShield = document.getElementById('btn-shard-shield');
-    const btnStanceConceal = document.getElementById('btn-stance-conceal');
+  async handleInitiativeRoll() {
+    const btn = document.getElementById('btn-arena-initiative');
+    if (btn) btn.disabled = true;
 
-    if (btnShardMight) {
-      btnShardMight.addEventListener('click', () => {
-        sfx.playClick();
-        const success = this.net.activateShard('MIGHT');
-        if (success) {
-          const seat = this.mesh.getLocalFaction();
-          const active = this.game.players[seat].activeShard === 'MIGHT';
-          toast.show(active ? '⚡ Vortex Shard activated (+1 Face Boost)!' : 'Vortex Shard deactivated.', 'info', 2000);
-        } else {
-          toast.show('Not enough Shards for Vortex Boost (Costs 1 Shard)', 'warning', 2500);
-        }
-      });
+    const record = this.net.rollInitiative();
+    if (!record) {
+      if (btn) btn.disabled = false;
+      return;
     }
 
-    if (btnShardShield) {
-      btnShardShield.addEventListener('click', () => {
-        sfx.playClick();
-        const success = this.net.activateShard('SHIELD');
-        if (success) {
-          const seat = this.mesh.getLocalFaction();
-          const active = this.game.players[seat].activeShard === 'SHIELD';
-          toast.show(active ? '🛡️ Aegis Shield activated (Wins Tiebreaks)!' : 'Aegis Shield deactivated.', 'info', 2000);
-        } else {
-          toast.show('Not enough Shards for Aegis Shield (Costs 1 Shard)', 'warning', 2500);
-        }
-      });
-    }
-
-    if (btnStanceConceal) {
-      btnStanceConceal.addEventListener('click', async () => {
-        sfx.playClick();
-        const seat = this.mesh.getLocalFaction();
-        const currentDie = this.game.players[seat].currentDie;
-        await this.net.selectDie(currentDie.id, true);
+    if (this.boardStage) {
+      await this.boardStage.rollInitiativeShowdown(record.rolls, () => {
+        sfx.playDominanceChime();
+        const p1 = this.game.players[record.initiativeOrder[0]]?.name || '1st';
+        toast.show(`🎲 Initiative Locked! ${p1} takes 1st Pole Position!`, 'success', 3000);
+        if (btn) btn.disabled = false;
       });
     }
   }
 
-  async handleArenaRoll() {
-    const rollBtn = document.getElementById('btn-arena-roll');
-    if (rollBtn) rollBtn.disabled = true;
+  async handleTacticalCommit() {
+    const btn = document.getElementById('btn-tactical-commit');
+    if (btn) btn.disabled = true;
 
-    // Execute game clash via network adapter
-    const clashRecord = await this.net.executeClash();
-    if (!clashRecord) {
-      if (rollBtn) rollBtn.disabled = false;
+    const seat = this.mesh.getLocalFaction();
+    const player = this.game.players[seat];
+    if (!player) {
+      if (btn) btn.disabled = false;
       return;
     }
 
-    // Trigger 3D Tumbling Cube Showdown on the Board Stage
-    if (this.boardStage) {
-      await this.boardStage.rollCombatShowdown(clashRecord.rolls, () => {
+    // Calculate energy cost of selected modifiers
+    const costs = { MELEE: 5, SHIFTER: 3, DUEL: 6, CONCEAL: 4 };
+    const modifiers = Array.from(this.localTacticalModifiers);
+    const totalCost = modifiers.reduce((sum, m) => sum + (costs[m] || 0), 0);
+
+    if (totalCost > player.energy) {
+      toast.show(`Not enough Energy! Selected actions cost ${totalCost}E, but you have ${player.energy}E.`, 'warning', 3000);
+      if (btn) btn.disabled = false;
+      return;
+    }
+
+    const selectEl = document.getElementById('select-tactical-die');
+    const dieId = selectEl ? selectEl.value : player.currentDie.id;
+    const isConcealed = this.localTacticalModifiers.has('CONCEAL');
+
+    await this.net.commitTacticalTurn({
+      spentEnergy: totalCost,
+      modifiers,
+      dieId,
+      isConcealed
+    });
+
+    this.localTacticalModifiers.clear();
+    const btnMelee = document.getElementById('btn-market-melee');
+    const btnShifter = document.getElementById('btn-market-shifter');
+    const btnDuel = document.getElementById('btn-market-duel');
+    const btnConceal = document.getElementById('btn-market-conceal');
+    if (btnMelee) btnMelee.classList.remove('ring-2');
+    if (btnShifter) btnShifter.classList.remove('ring-2');
+    if (btnDuel) btnDuel.classList.remove('ring-2');
+    if (btnConceal) btnConceal.classList.remove('ring-2');
+
+    toast.show(`Stance locked! Spent ${totalCost} Energy.`, 'info', 2000);
+
+    // If clash triggered on 3rd turn
+    if (this.game.lastClashResult && this.boardStage) {
+      await this.boardStage.rollCombatShowdown(this.game.lastClashResult.rolls, () => {
         sfx.playClash();
-        if (clashRecord.winnerId) {
+        if (this.game.lastClashResult.winnerId) {
           sfx.playDominanceChime();
-          toast.show(clashRecord.reason, clashRecord.winnerId === this.mesh.getLocalFaction() ? 'success' : 'info', 3000);
+          toast.show(this.game.lastClashResult.reason, this.game.lastClashResult.winnerId === seat ? 'success' : 'info', 3500);
         } else {
-          toast.show(clashRecord.reason, 'warning', 3000);
+          toast.show(this.game.lastClashResult.reason, 'warning', 3500);
         }
-        this.boardStage.showResult(clashRecord.reason, clashRecord.winnerId);
-        if (rollBtn) rollBtn.disabled = false;
+        this.boardStage.showResult(this.game.lastClashResult.reason, this.game.lastClashResult.winnerId);
       });
     }
 
-    // Highlight winning directed edge on the live cyclic graph (if in lab mode)
-    if (clashRecord.winnerId && this.graphRenderer && this.isLabMode) {
-      if (clashRecord.winnerId === 'ruby') this.graphRenderer.highlightEdge('ruby', 'cyan');
-      else if (clashRecord.winnerId === 'cyan') this.graphRenderer.highlightEdge('cyan', 'amber');
-      else if (clashRecord.winnerId === 'amber') this.graphRenderer.highlightEdge('amber', 'ruby');
-    }
+    if (btn) btn.disabled = false;
   }
 
   renderGameState() {
@@ -6361,6 +6788,11 @@ class TriarchApp {
     if (welcomePortal) welcomePortal.classList.add('hidden');
     if (arenaGrid) arenaGrid.classList.remove('hidden');
 
+    // Update 3D Stage for active phase
+    if (this.boardStage) {
+      this.boardStage.updateForPhase(this.game.phase, this.game.players, this.game.roundPot);
+    }
+
     const hudRuby = document.getElementById('hud-ruby');
     const hudCyan = document.getElementById('hud-cyan');
     const hudAmber = document.getElementById('hud-amber');
@@ -6370,7 +6802,19 @@ class TriarchApp {
       const isConcealed = this.net.peerCommitments.has(seat) && !this.net.peerReveals.has(seat) && !isLocal;
       const peerId = this.mesh.seats[seat]?.peerId;
       const latency = peerId ? this.mesh.latencies.get(peerId) : null;
-      return { isLocal, isConcealed, commitment: this.net.peerCommitments.get(seat), latency };
+      const poleIdx = this.game.initiativeOrder ? this.game.initiativeOrder.indexOf(seat) : -1;
+      const polePosition = poleIdx !== -1 ? poleIdx + 1 : null;
+      const isCurrentTurn = this.game.phase === GAME_PHASES.TACTICAL_TURN && this.game.initiativeOrder[this.game.currentTurnIndex] === seat;
+
+      return {
+        isLocal,
+        isConcealed,
+        commitment: this.net.peerCommitments.get(seat),
+        latency,
+        polePosition,
+        isCurrentTurn,
+        phase: this.game.phase
+      };
     };
 
     if (hudRuby) hudRuby.innerHTML = renderPlayerHUDHTML(this.game.players.ruby, getMeta('ruby'));
@@ -6383,26 +6827,45 @@ class TriarchApp {
       roundBanner.textContent = `Round ${this.game.roundNumber} / ${this.game.mode.maxRounds} — Target: ${this.game.mode.targetScore} Pts`;
     }
 
-    // Action / Next Round Controls
-    const rollBtn = document.getElementById('btn-arena-roll');
-    const nextBtn = document.getElementById('btn-arena-next');
+    // Action Dock Two-Phase View State Controller
+    const dockInitiative = document.getElementById('dock-phase-initiative');
+    const dockTactical = document.getElementById('dock-phase-tactical');
+    const dockResolution = document.getElementById('dock-phase-resolution');
+    const tacticalLocal = document.getElementById('tactical-local-controls');
+    const tacticalRemoteWait = document.getElementById('tactical-remote-wait');
+    const waitingName = document.getElementById('tactical-waiting-name');
 
-    if (this.game.phase === GAME_PHASES.DEPLOY) {
-      if (rollBtn) rollBtn.classList.remove('hidden');
-      if (nextBtn) nextBtn.classList.add('hidden');
-    } else if (this.game.phase === GAME_PHASES.RESOLUTION) {
-      if (rollBtn) rollBtn.classList.add('hidden');
-      if (nextBtn) nextBtn.classList.remove('hidden');
-    } else if (this.game.phase === GAME_PHASES.GAME_OVER) {
-      if (rollBtn) rollBtn.classList.add('hidden');
-      if (nextBtn) nextBtn.classList.add('hidden');
+    if (this.game.phase === GAME_PHASES.INITIATIVE) {
+      if (dockInitiative) dockInitiative.classList.remove('hidden');
+      if (dockTactical) dockTactical.classList.add('hidden');
+      if (dockResolution) dockResolution.classList.add('hidden');
+    } else if (this.game.phase === GAME_PHASES.TACTICAL_TURN) {
+      if (dockInitiative) dockInitiative.classList.add('hidden');
+      if (dockTactical) dockTactical.classList.remove('hidden');
+      if (dockResolution) dockResolution.classList.add('hidden');
+
+      const activeTurnSeat = this.game.initiativeOrder[this.game.currentTurnIndex];
+      const isMyTurn = activeTurnSeat === this.mesh.getLocalFaction();
+
+      if (isMyTurn) {
+        if (tacticalLocal) tacticalLocal.classList.remove('hidden');
+        if (tacticalRemoteWait) tacticalRemoteWait.classList.add('hidden');
+      } else {
+        if (tacticalLocal) tacticalLocal.classList.add('hidden');
+        if (tacticalRemoteWait) tacticalRemoteWait.classList.remove('hidden');
+        if (waitingName) waitingName.textContent = this.game.players[activeTurnSeat]?.name || activeTurnSeat;
+      }
+    } else if (this.game.phase === GAME_PHASES.RESOLUTION || this.game.phase === GAME_PHASES.GAME_OVER) {
+      if (dockInitiative) dockInitiative.classList.add('hidden');
+      if (dockTactical) dockTactical.classList.add('hidden');
+      if (dockResolution) dockResolution.classList.remove('hidden');
     }
 
     // Render Round History
     const historyContainer = document.getElementById('arena-history-list');
     if (historyContainer) {
       if (this.game.roundHistory.length === 0) {
-        historyContainer.innerHTML = `<div class="text-xs text-slate-500 font-mono text-center py-4">No clashes recorded yet. Roll to initiate combat!</div>`;
+        historyContainer.innerHTML = `<div class="text-xs text-slate-500 font-mono text-center py-4">No clashes recorded yet. Roll for initiative to begin!</div>`;
       } else {
         historyContainer.innerHTML = this.game.roundHistory.map((rec) => `
           <div class="flex items-center justify-between p-2.5 rounded-xl bg-slate-900/60 border border-slate-800 text-xs font-mono">
@@ -6692,7 +7155,17 @@ export class BoardStageManager {
         <!-- Battlefield Arena Content Layer -->
         <div class="relative z-10 space-y-6">
           
-          <!-- 3D Tumbling Combat Dice Stage -->
+          <!-- Stage Header & Pot Display -->
+          <div class="flex items-center justify-between flex-wrap gap-2">
+            <div id="stage-phase-tag" class="text-xs font-mono font-bold uppercase tracking-wider text-indigo-400 flex items-center gap-1.5">
+              <span>🎲</span> Phase 1: Initiative
+            </div>
+            <div id="stage-pot-badge" class="hidden text-xs font-mono font-bold px-3 py-1 rounded-full bg-amber-950/80 border border-amber-500/50 text-amber-300 shadow-[0_0_15px_#facc1530] flex items-center gap-1.5">
+              <span>💰</span> Arena Pot: <span id="stage-pot-amount">0</span> VP
+            </div>
+          </div>
+
+          <!-- 3D Tumbling Dice Stage -->
           <div class="grid grid-cols-1 sm:grid-cols-3 gap-6 sm:gap-8 items-center justify-items-center py-4">
             <div id="stage-die-ruby" class="flex flex-col items-center gap-3"></div>
             <div id="stage-die-cyan" class="flex flex-col items-center gap-3"></div>
@@ -6711,8 +7184,8 @@ export class BoardStageManager {
     this.diceCubes.ruby = new CSS3DDiceCube(
       this.container.querySelector('#stage-die-ruby'),
       'ruby',
-      'Ruby Archon (A)',
-      [2, 2, 4, 4, 9, 9],
+      'Ruby Archon (G1)',
+      [1, 5, 10, 11, 13, 17],
       '#fb7185',
       'from-rose-500 to-rose-700'
     );
@@ -6720,8 +7193,8 @@ export class BoardStageManager {
     this.diceCubes.cyan = new CSS3DDiceCube(
       this.container.querySelector('#stage-die-cyan'),
       'cyan',
-      'Cyan Sentinel (B)',
-      [1, 1, 6, 6, 8, 8],
+      'Cyan Sentinel (G2)',
+      [3, 4, 7, 12, 15, 16],
       '#22d3ee',
       'from-cyan-500 to-cyan-700'
     );
@@ -6729,11 +7202,71 @@ export class BoardStageManager {
     this.diceCubes.amber = new CSS3DDiceCube(
       this.container.querySelector('#stage-die-amber'),
       'amber',
-      'Amber Keeper (C)',
-      [3, 3, 5, 5, 7, 7],
+      'Amber Keeper (G3)',
+      [2, 6, 8, 9, 14, 18],
       '#facc15',
       'from-amber-400 to-amber-600'
     );
+  }
+
+  /**
+   * Updates dice cube faces and header for the active phase.
+   * @param {string} phase
+   * @param {Object} players
+   * @param {number} pot
+   */
+  updateForPhase(phase, players = {}, pot = 0) {
+    const phaseTag = this.container.querySelector('#stage-phase-tag');
+    const potBadge = this.container.querySelector('#stage-pot-badge');
+    const potAmount = this.container.querySelector('#stage-pot-amount');
+
+    if (phase === 'INITIATIVE') {
+      if (phaseTag) phaseTag.innerHTML = '<span>🎲</span> Phase 1: Go-First Initiative';
+      if (potBadge) potBadge.classList.add('hidden');
+
+      // Set to Go-First dice
+      this.diceCubes.ruby.updateDice([1, 5, 10, 11, 13, 17], 'Ruby Archon (G1)', '#fb7185', 'from-rose-500 to-rose-700');
+      this.diceCubes.cyan.updateDice([3, 4, 7, 12, 15, 16], 'Cyan Sentinel (G2)', '#22d3ee', 'from-cyan-500 to-cyan-700');
+      this.diceCubes.amber.updateDice([2, 6, 8, 9, 14, 18], 'Amber Keeper (G3)', '#facc15', 'from-amber-400 to-amber-600');
+    } else {
+      if (phaseTag) phaseTag.innerHTML = '<span>⚔️</span> Phase 2: Tactical Clash';
+      if (potBadge) {
+        potBadge.classList.remove('hidden');
+        if (potAmount) potAmount.textContent = pot;
+      }
+
+      // Set to selected Combat dice
+      if (players.ruby?.currentDie) {
+        this.diceCubes.ruby.updateDice(players.ruby.currentDie.faces, players.ruby.currentDie.name, '#fb7185', 'from-rose-500 to-rose-700');
+      }
+      if (players.cyan?.currentDie) {
+        this.diceCubes.cyan.updateDice(players.cyan.currentDie.faces, players.cyan.currentDie.name, '#22d3ee', 'from-cyan-500 to-cyan-700');
+      }
+      if (players.amber?.currentDie) {
+        this.diceCubes.amber.updateDice(players.amber.currentDie.faces, players.amber.currentDie.name, '#facc15', 'from-amber-400 to-amber-600');
+      }
+    }
+  }
+
+  /**
+   * Animates 3D tumbling initiative roll.
+   * @param {Object} rolls
+   * @param {Function} onComplete
+   */
+  async rollInitiativeShowdown(rolls, onComplete) {
+    this.setWatermarkActive(true);
+    sfx.playDiceRoll();
+    haptics.roll();
+
+    const pRuby = this.diceCubes.ruby.rollToFace(rolls.ruby);
+    const pCyan = this.diceCubes.cyan.rollToFace(rolls.cyan);
+    const pAmber = this.diceCubes.amber.rollToFace(rolls.amber);
+
+    await Promise.all([pRuby, pCyan, pAmber]);
+    this.setWatermarkActive(false);
+    haptics.impact();
+
+    if (onComplete) onComplete();
   }
 
   /**
@@ -6809,6 +7342,14 @@ export class CSS3DDiceCube {
     this.gradient = gradientClass;
     this.currentRoll = faces[0];
 
+    this.render();
+  }
+
+  updateDice(faces, name, accentColor, gradientClass) {
+    this.faces = faces;
+    this.name = name;
+    this.accent = accentColor;
+    this.gradient = gradientClass;
     this.render();
   }
 
@@ -6987,27 +7528,49 @@ export function renderPlayerHUDHTML(player, networkMeta = {}) {
 
   const isConcealed = networkMeta.isConcealed;
   const latency = networkMeta.latency;
+  const polePos = networkMeta.polePosition; // 1, 2, 3
+  const isTurn = networkMeta.isCurrentTurn;
+  const phase = networkMeta.phase;
+
+  const poleBadge = polePos ? `
+    <span class="text-[10px] px-1.5 py-0.5 rounded font-mono font-bold ${
+      polePos === 1 ? 'bg-amber-500/20 border border-amber-400/50 text-amber-300' :
+      polePos === 2 ? 'bg-slate-700/50 border border-slate-500/50 text-slate-200' :
+      'bg-amber-950/30 border border-amber-800/40 text-amber-500'
+    }">
+      ${polePos === 1 ? '🥇 1st' : polePos === 2 ? '🥈 2nd' : '🥉 3rd'}
+    </span>
+  ` : '';
+
+  const activeTurnBorder = isTurn ? 'ring-2 ring-amber-400 shadow-[0_0_25px_#facc1540] animate-pulse' : '';
 
   return `
-    <div class="player-hud relative p-4 rounded-2xl border ${f.borderClass} bg-gradient-to-b ${f.bgGradient} backdrop-blur-md shadow-xl transition-all duration-300">
+    <div class="player-hud relative p-4 rounded-2xl border ${f.borderClass} ${activeTurnBorder} bg-gradient-to-b ${f.bgGradient} backdrop-blur-md shadow-xl transition-all duration-300">
       <div class="flex items-center justify-between">
         <div class="flex items-center gap-2.5">
           <div class="w-8 h-8 rounded-xl flex items-center justify-center text-lg bg-slate-900/80 border border-slate-700 shadow-inner">
             ${f.symbol}
           </div>
           <div>
-            <h3 class="text-sm font-bold text-slate-100 flex items-center gap-1.5">
-              ${player.name}
-              ${player.isAI 
-                ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">🤖 BOT</span>' 
-                : (networkMeta.isLocal 
-                    ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 font-mono">👤 YOU</span>'
-                    : `<span class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-950 text-indigo-300 font-mono flex items-center gap-1">🟢 PEER ${latency ? `(${latency}ms)` : ''}</span>`
-                  )
-              }
-            </h3>
+            <div class="flex items-center gap-1.5 flex-wrap">
+              <h3 class="text-sm font-bold text-slate-100 flex items-center gap-1.5">
+                ${player.name}
+                ${player.isAI 
+                  ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-slate-800 text-slate-400 font-mono">🤖 BOT</span>' 
+                  : (networkMeta.isLocal 
+                      ? '<span class="text-[10px] px-1.5 py-0.5 rounded bg-emerald-950 text-emerald-400 font-mono">👤 YOU</span>'
+                      : `<span class="text-[10px] px-1.5 py-0.5 rounded bg-indigo-950 text-indigo-300 font-mono flex items-center gap-1">🟢 PEER ${latency ? `(${latency}ms)` : ''}</span>`
+                    )
+                }
+              </h3>
+              ${poleBadge}
+              ${isTurn ? '<span class="text-[9px] px-1.5 py-0.5 rounded bg-amber-500 text-slate-950 font-black font-mono uppercase tracking-wider">ACTIVE</span>' : ''}
+            </div>
             <div class="text-[11px] text-slate-400 font-mono">
-              ${isConcealed ? '🔒 Secret Stance (SHA-256)' : player.currentDie.name}
+              ${phase === 'INITIATIVE' 
+                ? `${player.goFirstDie?.name || 'Go-First'} ${player.goFirstDie?.toFaceString() || ''}`
+                : (isConcealed ? '🔒 Secret Stance (SHA-256)' : player.currentDie.name)
+              }
             </div>
           </div>
         </div>
@@ -7019,14 +7582,29 @@ export function renderPlayerHUDHTML(player, networkMeta = {}) {
 
       <div class="mt-3 pt-3 border-t border-slate-800/60 flex items-center justify-between text-xs">
         <div class="flex items-center gap-1.5">
+          <span class="text-[11px] text-slate-400">Energy:</span>
+          <span class="font-mono font-bold text-amber-300 text-xs">⚡ ${player.energy ?? 0}</span>
+          ${player.staked > 0 ? `<span class="text-[10px] font-mono text-slate-400">(-${player.staked})</span>` : ''}
+        </div>
+        <div class="flex items-center gap-1.5">
           <span class="text-[11px] text-slate-400">Shards:</span>
           <div class="flex gap-1">${shardsBadges}</div>
         </div>
         <div class="flex items-center gap-1.5">
-          <span class="text-[11px] text-slate-400">Dominance:</span>
+          <span class="text-[11px] text-slate-400">Dom:</span>
           <div class="flex gap-1">${scorePips}</div>
         </div>
       </div>
+
+      ${player.marketModifiers && player.marketModifiers.length > 0 ? `
+        <div class="mt-2 flex flex-wrap gap-1">
+          ${player.marketModifiers.map(m => `
+            <span class="text-[10px] px-2 py-0.5 rounded-md bg-indigo-900/60 border border-indigo-500/40 text-indigo-200 font-mono">
+              ${m === 'MELEE' ? '⚔️ Melee (+2)' : m === 'SHIFTER' ? '⚡ Shifter (+1)' : m === 'DUEL' ? '🛡️ Shield' : m}
+            </span>
+          `).join('')}
+        </div>
+      ` : ''}
 
       ${player.activeShard ? `
         <div class="mt-2 text-[11px] px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 font-mono flex items-center gap-1">
@@ -9955,10 +10533,10 @@ describe('GameStateManager Initialization & Properties', () => {
     assert.equal(game.players.amber.score, 0);
     assert.equal(game.players.ruby.shards, 2);
 
-    // Starting match activates DEPLOY phase
+    // Starting match activates INITIATIVE phase
     game.startMatch();
     assert.equal(game.isMatchActive, true);
-    assert.equal(game.phase, GAME_PHASES.DEPLOY);
+    assert.equal(game.phase, GAME_PHASES.INITIATIVE);
 
     // Ending match returns to LOBBY
     game.endMatch();
@@ -10024,7 +10602,7 @@ describe('Clash Execution & Scoring', () => {
     assert.equal(game.phase, GAME_PHASES.RESOLUTION);
 
     game.nextRound();
-    assert.equal(game.phase, GAME_PHASES.DEPLOY);
+    assert.equal(game.phase, GAME_PHASES.INITIATIVE);
     assert.equal(game.roundNumber, 2);
 
     game.executeClash();
@@ -11300,6 +11878,136 @@ describe('Graph-Theoretic Cycle Detection', () => {
 
 
 /* =============================================================================
+ * FILE: test/two-phase.test.js
+ * ============================================================================= */
+
+/**
+ * Automated Verification Suite - Strict Two-Phase Execution Engine
+ * (Phase 1: Zero-Tie Go-First Initiative -> Phase 2: Tactical Turn & Energy Pot Clash)
+ */
+
+import { test, describe } from 'node:test';
+import assert from 'node:assert/strict';
+import { GameStateManager } from '../src/game/state.js';
+import { GAME_PHASES } from '../src/game/rules.js';
+import { GO_FIRST_DICE, TRIARCH_STANDARD } from '../src/math/dice.js';
+
+describe('Strict Two-Phase Execution Engine', () => {
+
+  test('1. Zero-Tie Initiative: Strictly generates unique 1st, 2nd, and 3rd pole positions with non-identical energy across 100 trials', () => {
+    for (let trial = 0; trial < 100; trial++) {
+      const game = new GameStateManager({ rubyAI: false, cyanAI: false, amberAI: false });
+      game.startMatch();
+
+      assert.equal(game.phase, GAME_PHASES.INITIATIVE);
+      assert.equal(game.isMatchActive, true);
+
+      const record = game.rollInitiative();
+      assert.equal(game.phase, GAME_PHASES.TACTICAL_TURN);
+
+      const rolls = [record.rolls.ruby, record.rolls.cyan, record.rolls.amber];
+      // Verify all 3 rolls are distinct
+      const uniqueRolls = new Set(rolls);
+      assert.equal(uniqueRolls.size, 3, `Trial ${trial}: Go-First initiative rolls must be strictly unique: ${rolls.join(', ')}`);
+
+      // Verify energy matches roll values
+      assert.equal(game.players.ruby.energy, record.rolls.ruby);
+      assert.equal(game.players.cyan.energy, record.rolls.cyan);
+      assert.equal(game.players.amber.energy, record.rolls.amber);
+
+      // Verify initiativeOrder is sorted descending
+      const order = record.initiativeOrder;
+      assert.equal(order.length, 3);
+      assert.ok(game.players[order[0]].energy > game.players[order[1]].energy);
+      assert.ok(game.players[order[1]].energy > game.players[order[2]].energy);
+    }
+  });
+
+  test('2. Turn Progression: currentTurnIndex increments sequentially from 1st to 3rd pole position', () => {
+    const game = new GameStateManager({ rubyAI: false, cyanAI: false, amberAI: false });
+    game.startMatch();
+    game.rollInitiative();
+
+    assert.equal(game.phase, GAME_PHASES.TACTICAL_TURN);
+    assert.equal(game.currentTurnIndex, 0);
+
+    const [firstP, secondP, thirdP] = game.initiativeOrder;
+
+    // Player 1 commits turn
+    const ok1 = game.commitTacticalTurn(firstP, { spentEnergy: 2, modifiers: [] });
+    assert.ok(ok1);
+    assert.equal(game.currentTurnIndex, 1);
+    assert.equal(game.phase, GAME_PHASES.TACTICAL_TURN);
+
+    // Reject out-of-turn play by 3rd player
+    const invalidTurn = game.commitTacticalTurn(thirdP, { spentEnergy: 1 });
+    assert.equal(invalidTurn, false);
+    assert.equal(game.currentTurnIndex, 1);
+
+    // Player 2 commits turn
+    const ok2 = game.commitTacticalTurn(secondP, { spentEnergy: 3, modifiers: ['SHIFTER'] });
+    assert.ok(ok2);
+    assert.equal(game.currentTurnIndex, 2);
+    assert.equal(game.phase, GAME_PHASES.TACTICAL_TURN);
+
+    // Player 3 commits turn -> triggers automatic clash resolution
+    const ok3 = game.commitTacticalTurn(thirdP, { spentEnergy: 0, modifiers: [] });
+    assert.ok(ok3);
+    assert.equal(game.currentTurnIndex, 3);
+    assert.equal(game.phase, GAME_PHASES.RESOLUTION);
+  });
+
+  test('3. Pot Calculation: Unspent energy from all three players correctly sums into the final pot', () => {
+    const game = new GameStateManager({ rubyAI: false, cyanAI: false, amberAI: false });
+    game.startMatch();
+    game.rollInitiative();
+
+    const [p1, p2, p3] = game.initiativeOrder;
+    const initialEnergyTotal = game.players[p1].energy + game.players[p2].energy + game.players[p3].energy;
+
+    const spend1 = Math.min(1, game.players[p1].energy);
+    const spend2 = Math.min(2, game.players[p2].energy);
+    const spend3 = 0;
+
+    game.commitTacticalTurn(p1, { spentEnergy: spend1, modifiers: [] });
+    game.commitTacticalTurn(p2, { spentEnergy: spend2, modifiers: [] });
+    game.commitTacticalTurn(p3, { spentEnergy: spend3, modifiers: [] });
+
+    // Clash has executed
+    assert.equal(game.phase, GAME_PHASES.RESOLUTION);
+    const expectedPot = initialEnergyTotal - (spend1 + spend2 + spend3);
+    assert.equal(game.roundPot, expectedPot, `Expected pot ${expectedPot} to match roundPot ${game.roundPot}`);
+    assert.equal(game.lastClashResult.pot, expectedPot);
+  });
+
+  test('4. Autonomous AI Failover & Auto-Turn Progression in Tactical Phase', () => {
+    // 1 Human (Ruby), 2 Bots (Cyan, Amber)
+    const game = new GameStateManager({ rubyAI: false, cyanAI: true, amberAI: true });
+    game.startMatch();
+    game.rollInitiative();
+
+    const [p1, p2, p3] = game.initiativeOrder;
+
+    if (p1 !== 'ruby') {
+      // If a bot took 1st pole position, bot should have automatically acted
+      assert.ok(game.currentTurnIndex >= 1);
+    }
+
+    if (game.phase === GAME_PHASES.TACTICAL_TURN) {
+      // Human plays their turn
+      assert.equal(game.initiativeOrder[game.currentTurnIndex], 'ruby');
+      game.commitTacticalTurn('ruby', { spentEnergy: 0 });
+    }
+
+    // After human plays, subsequent bots finish and round resolves
+    assert.equal(game.phase, GAME_PHASES.RESOLUTION);
+  });
+
+});
+
+
+
+/* =============================================================================
  * FILE: triarch.svg
  * ============================================================================= */
 
@@ -11393,9 +12101,13 @@ describe('Graph-Theoretic Cycle Detection', () => {
 
 {
   "name": "TRIARCH: Cyclic Edge",
-  "version": "1.12.0",
-  "buildTime": "2026-08-26T14:00:00Z",
+  "version": "1.13.0",
+  "buildTime": "2026-08-26T14:20:00Z",
   "features": [
+    "Strict Two-Phase Round Loop (Phase 1: Go-First Zero-Tie Initiative -> Phase 2: Tactical Turn & Energy Pot Clash)",
+    "Dynamic Arena Pot Display & Accumulation of Unspent Energy",
+    "Market Action Dock (Melee +2, Face Shifter +1, Aegis Shield, Stance Concealment)",
+    "Welcome & Matchmaking Portal Gating (Active Game Arena Displays Only When Match Starts)",
     "Strict 3-Distinct-Human Auto-Start Matchmaking Guard",
     "Real-Time Connected Players Counter in Waiting Modal (1/3, 2/3, 3/3)",
     "Global Lobby Discovery Bus (LOBBY_QUERY <-> ROOM_ADVERTISE Handshake)",
