@@ -1,16 +1,14 @@
 /**
  * TRIARCH: Cyclic Edge - Global Lobby Discovery Bus
- * Manages cross-tab and cross-device room advertising, presence query-response,
- * and live synchronization for the multiplayer lobby.
+ * Lightweight in-memory room discovery over BroadcastChannel ('triarch-lobby') and NATS ('triarch.lobby').
+ * Zero localStorage dependency, 2-second host pulse, and instant query-response.
  */
 
-export const LOBBY_GLOBAL_CHANNEL = 'triarch-lobby-global';
-export const LOCAL_STORAGE_REGISTRY_KEY = 'triarch_public_rooms_v1';
-
+export const LOBBY_GLOBAL_CHANNEL = 'triarch-lobby';
 export const DISCOVERY_ACTIONS = Object.freeze({
   LOBBY_QUERY: 'LOBBY_QUERY',
-  ROOM_ADVERTISE: 'ROOM_ADVERTISE',
-  ROOM_REMOVED: 'ROOM_REMOVED'
+  ROOM_ANNOUNCE: 'ROOM_ANNOUNCE',
+  ROOM_CLOSED: 'ROOM_CLOSED'
 });
 
 export class LobbyDiscoveryBus {
@@ -34,30 +32,14 @@ export class LobbyDiscoveryBus {
       }
     }
 
-    // Storage event listener for cross-tab synchronization fallback
+    // Host beforeunload guard: automatically announce room closure on window close/refresh
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
-      this._storageListener = (e) => {
-        if (e.key === LOCAL_STORAGE_REGISTRY_KEY) {
-          if (e.newValue) {
-            try {
-              const parsed = JSON.parse(e.newValue);
-              for (const desc of Object.values(parsed)) {
-                if (desc && desc.roomCode) {
-                  for (const cb of this.listeners) {
-                    cb(DISCOVERY_ACTIONS.ROOM_ADVERTISE, desc);
-                  }
-                }
-              }
-            } catch (err) {}
-          } else {
-            // Cleared storage
-            for (const cb of this.listeners) {
-              cb(DISCOVERY_ACTIONS.ROOM_REMOVED, null);
-            }
-          }
+      this._unloadListener = () => {
+        for (const code of this._activeDescriptors.keys()) {
+          this.stopAdvertising(code);
         }
       };
-      window.addEventListener('storage', this._storageListener);
+      window.addEventListener('beforeunload', this._unloadListener);
     }
   }
 
@@ -73,7 +55,7 @@ export class LobbyDiscoveryBus {
     if (this.nc && typeof this.nc.publish === 'function' && typeof this.nc.stringCodec === 'function') {
       try {
         const sc = this.nc.stringCodec();
-        this.nc.publish('triarch.lobby.global', sc.encode(JSON.stringify(data)));
+        this.nc.publish('triarch.lobby', sc.encode(JSON.stringify(data)));
       } catch (err) {}
     }
   }
@@ -81,39 +63,38 @@ export class LobbyDiscoveryBus {
   _handleMessage(data) {
     if (!data || typeof data !== 'object' || !data.type) return;
 
-    // 1. Inbound query: If we are currently hosting/advertising rooms, immediately reply with ROOM_ADVERTISE
+    // 1. Inbound query: Active hosts immediately respond with current descriptor
     if (data.type === DISCOVERY_ACTIONS.LOBBY_QUERY) {
       for (const descriptor of this._activeDescriptors.values()) {
         this._post({
-          type: DISCOVERY_ACTIONS.ROOM_ADVERTISE,
-          descriptor,
+          type: DISCOVERY_ACTIONS.ROOM_ANNOUNCE,
+          descriptor: { ...descriptor, lastSeen: Date.now() },
           t: Date.now()
         });
       }
       return;
     }
 
-    // 2. Inbound advertisement
-    if (data.type === DISCOVERY_ACTIONS.ROOM_ADVERTISE && data.descriptor) {
-      this._saveToLocalStorage(data.descriptor);
+    // 2. Inbound room announcement / pulse
+    if (data.type === DISCOVERY_ACTIONS.ROOM_ANNOUNCE && data.descriptor) {
+      const desc = { ...data.descriptor, lastSeen: Date.now() };
       for (const cb of this.listeners) {
-        cb(DISCOVERY_ACTIONS.ROOM_ADVERTISE, data.descriptor);
+        try { cb(DISCOVERY_ACTIONS.ROOM_ANNOUNCE, desc); } catch (e) {}
       }
       return;
     }
 
-    // 3. Inbound room removed
-    if (data.type === DISCOVERY_ACTIONS.ROOM_REMOVED && data.roomCode) {
-      this._removeFromLocalStorage(data.roomCode);
+    // 3. Inbound room closed / cancelled
+    if (data.type === DISCOVERY_ACTIONS.ROOM_CLOSED && data.roomCode) {
       for (const cb of this.listeners) {
-        cb(DISCOVERY_ACTIONS.ROOM_REMOVED, data.roomCode);
+        try { cb(DISCOVERY_ACTIONS.ROOM_CLOSED, data.roomCode); } catch (e) {}
       }
       return;
     }
   }
 
   /**
-   * Dispatches a LOBBY_QUERY to solicit instant advertisements from all active hosts.
+   * Dispatches a LOBBY_QUERY to solicit instant announcements from active hosts.
    */
   queryLobby() {
     this._post({
@@ -123,24 +104,24 @@ export class LobbyDiscoveryBus {
   }
 
   /**
-   * Starts periodic and on-demand advertisement for a hosted waiting room.
+   * Starts periodic 2-second heartbeat pulse for a hosted waiting room.
    * @param {Object} descriptor - RoomDescriptor
    */
   startAdvertising(descriptor) {
     if (!descriptor || !descriptor.roomCode) return;
     const code = descriptor.roomCode.toUpperCase();
+    const liveDesc = { ...descriptor, lastSeen: Date.now() };
 
-    this._activeDescriptors.set(code, descriptor);
-    this._saveToLocalStorage(descriptor);
+    this._activeDescriptors.set(code, liveDesc);
 
-    // Immediate announcement
+    // Immediate pulse
     this._post({
-      type: DISCOVERY_ACTIONS.ROOM_ADVERTISE,
-      descriptor,
+      type: DISCOVERY_ACTIONS.ROOM_ANNOUNCE,
+      descriptor: liveDesc,
       t: Date.now()
     });
 
-    // 3-second heartbeat broadcast
+    // 2-second heartbeat pulse
     if (this._advertiseTimers.has(code)) {
       clearInterval(this._advertiseTimers.get(code));
     }
@@ -148,13 +129,14 @@ export class LobbyDiscoveryBus {
     const timer = setInterval(() => {
       const live = this._activeDescriptors.get(code);
       if (live) {
+        live.lastSeen = Date.now();
         this._post({
-          type: DISCOVERY_ACTIONS.ROOM_ADVERTISE,
+          type: DISCOVERY_ACTIONS.ROOM_ANNOUNCE,
           descriptor: live,
           t: Date.now()
         });
       }
-    }, 3000);
+    }, 2000);
 
     if (timer && typeof timer.unref === 'function') {
       timer.unref();
@@ -164,25 +146,27 @@ export class LobbyDiscoveryBus {
   }
 
   /**
-   * Updates the in-memory descriptor being advertised.
+   * Updates the in-memory descriptor and immediately broadcasts an announcement.
    * @param {string} roomCode
    * @param {Object} updatedDescriptor
    */
   updateDescriptor(roomCode, updatedDescriptor) {
     const code = roomCode.toUpperCase();
+    const liveDesc = { ...updatedDescriptor, lastSeen: Date.now() };
+
     if (this._activeDescriptors.has(code)) {
-      this._activeDescriptors.set(code, updatedDescriptor);
+      this._activeDescriptors.set(code, liveDesc);
     }
-    this._saveToLocalStorage(updatedDescriptor);
+
     this._post({
-      type: DISCOVERY_ACTIONS.ROOM_ADVERTISE,
-      descriptor: updatedDescriptor,
+      type: DISCOVERY_ACTIONS.ROOM_ANNOUNCE,
+      descriptor: liveDesc,
       t: Date.now()
     });
   }
 
   /**
-   * Stops advertising a room and notifies peers of removal.
+   * Stops advertising a room and broadcasts ROOM_CLOSED.
    * @param {string} roomCode
    */
   stopAdvertising(roomCode) {
@@ -194,40 +178,22 @@ export class LobbyDiscoveryBus {
     }
 
     this._activeDescriptors.delete(code);
-    this._removeFromLocalStorage(code);
 
     this._post({
-      type: DISCOVERY_ACTIONS.ROOM_REMOVED,
+      type: DISCOVERY_ACTIONS.ROOM_CLOSED,
       roomCode: code,
       t: Date.now()
     });
   }
 
+  /**
+   * Subscribes to room announcements and closures.
+   * @param {(action: string, payload: any) => void} callback
+   * @returns {() => void} Unsubscribe function
+   */
   onRoomUpdate(callback) {
     this.listeners.add(callback);
     return () => this.listeners.delete(callback);
-  }
-
-  _saveToLocalStorage(descriptor) {
-    if (typeof localStorage === 'undefined' || !descriptor) return;
-    try {
-      const raw = localStorage.getItem(LOCAL_STORAGE_REGISTRY_KEY);
-      const map = raw ? JSON.parse(raw) : {};
-      map[descriptor.roomCode] = descriptor;
-      localStorage.setItem(LOCAL_STORAGE_REGISTRY_KEY, JSON.stringify(map));
-    } catch (e) {}
-  }
-
-  _removeFromLocalStorage(roomCode) {
-    if (typeof localStorage === 'undefined') return;
-    try {
-      const raw = localStorage.getItem(LOCAL_STORAGE_REGISTRY_KEY);
-      if (raw) {
-        const map = JSON.parse(raw);
-        delete map[roomCode];
-        localStorage.setItem(LOCAL_STORAGE_REGISTRY_KEY, JSON.stringify(map));
-      }
-    } catch (e) {}
   }
 
   destroy() {
@@ -242,8 +208,8 @@ export class LobbyDiscoveryBus {
       this.bc.close();
       this.bc = null;
     }
-    if (typeof window !== 'undefined' && this._storageListener) {
-      window.removeEventListener('storage', this._storageListener);
+    if (typeof window !== 'undefined' && this._unloadListener) {
+      window.removeEventListener('beforeunload', this._unloadListener);
     }
   }
 }

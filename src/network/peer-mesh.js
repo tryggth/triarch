@@ -46,10 +46,17 @@ export class PeerMeshManager {
   }
 
   _resetSeats() {
+    const defaultSeat = () => ({ peerId: null, name: null, isAI: false, aiType: null, ready: false });
+    const g1 = defaultSeat();
+    const g2 = defaultSeat();
+    const g3 = defaultSeat();
     this.seats = {
-      ruby: { peerId: null, name: null, isAI: false, aiType: null, ready: false },
-      cyan: { peerId: null, name: null, isAI: false, aiType: null, ready: false },
-      amber: { peerId: null, name: null, isAI: false, aiType: null, ready: false }
+      G1: g1,
+      G2: g2,
+      G3: g3,
+      ruby: g1,
+      cyan: g2,
+      amber: g3
     };
   }
 
@@ -75,15 +82,20 @@ export class PeerMeshManager {
 
     // If host, auto-claim chosen Go-First die seat
     if (this.isHost) {
-      const hostFaction = GO_FIRST_TO_FACTION[initialDie] || 'ruby';
-      this.localSeat = hostFaction;
-      this.seats[hostFaction] = {
+      const hostDie = initialDie.startsWith('G') ? initialDie : (FACTION_TO_GO_FIRST[initialDie] || 'G1');
+      const hostFaction = GO_FIRST_TO_FACTION[hostDie] || 'ruby';
+      this.localSeat = hostDie;
+      const hostSeatData = {
         peerId: this.peerId,
         name: this.peerName,
         isAI: false,
         aiType: null,
-        ready: true
+        ready: true,
+        die: hostDie,
+        faction: hostFaction
       };
+      this.seats[hostDie] = hostSeatData;
+      this.seats[hostFaction] = hostSeatData;
     }
 
     // Set up transport handlers
@@ -112,16 +124,21 @@ export class PeerMeshManager {
 
       // If host, vacate seat or convert to AI
       if (this.isHost) {
-        for (const seat of SEATS) {
-          if (this.seats[seat].peerId === remotePeerId) {
-            console.log(`[Mesh] Vacating seat ${seat} left by peer ${remotePeerId}`);
-            this.seats[seat] = {
+        for (const d of ['G1', 'G2', 'G3']) {
+          if (this.seats[d]?.peerId === remotePeerId) {
+            console.log(`[Mesh] Vacating seat ${d} left by peer ${remotePeerId}`);
+            const faction = GO_FIRST_TO_FACTION[d];
+            const botSeat = {
               peerId: null,
               name: 'AI Bot',
               isAI: true,
-              aiType: seat === 'ruby' ? 'CYCLIC_EXPLOITER' : seat === 'cyan' ? 'MAX_EV' : 'SHARD_TACTICIAN',
-              ready: true
+              aiType: d === 'G1' ? 'CYCLIC_EXPLOITER' : d === 'G2' ? 'MAX_EV' : 'SHARD_TACTICIAN',
+              ready: true,
+              die: d,
+              faction
             };
+            this.seats[d] = botSeat;
+            this.seats[faction] = botSeat;
           }
         }
         this.broadcastSeatState();
@@ -173,18 +190,17 @@ export class PeerMeshManager {
     // Ping / Pong handlers
     if (envelope.type === ACTION_TYPES.PING) {
       const pong = createActionEnvelope(ACTION_TYPES.PONG, this.localSeat, {
-        clientT: envelope.payload.t,
-        serverT: Date.now()
+        originalTimestamp: envelope.payload.t
       }, { peerId: this.peerId });
       this.transport.send(serializeAction(pong), fromPeerId);
       return;
     }
 
     if (envelope.type === ACTION_TYPES.PONG) {
-      if (envelope.payload && envelope.payload.clientT) {
-        const rtt = Math.max(1, Date.now() - envelope.payload.clientT);
-        this.latencies.set(fromPeerId, rtt);
-        for (const cb of this.listeners.latency) cb(fromPeerId, rtt);
+      const rtt = Date.now() - envelope.payload.originalTimestamp;
+      this.latencies.set(fromPeerId, Math.round(rtt / 2));
+      for (const cb of this.listeners.latency) {
+        cb(fromPeerId, Math.round(rtt / 2));
       }
       return;
     }
@@ -200,58 +216,60 @@ export class PeerMeshManager {
     // Seat Claim (Host processes requests)
     if (envelope.type === ACTION_TYPES.SEAT_CLAIM) {
       if (this.isHost) {
-        const { peerId, peerName, seat } = envelope.payload;
-        const targetFaction = GO_FIRST_TO_FACTION[seat] || seat;
-        if (['ruby', 'cyan', 'amber'].includes(targetFaction)) {
-          // Vacate any prior seat claimed by this peer
-          for (const s of ['ruby', 'cyan', 'amber']) {
-            if (s !== targetFaction && this.seats[s].peerId === peerId) {
-              this.seats[s] = {
-                peerId: null,
-                name: null,
-                isAI: false,
-                aiType: null,
-                ready: false
-              };
-            }
+        const { peerId, peerName, seat, die } = envelope.payload;
+        const rawDie = die || seat || 'G1';
+        const targetDie = rawDie.startsWith('G') ? rawDie : (FACTION_TO_GO_FIRST[rawDie] || 'G1');
+        const targetFaction = GO_FIRST_TO_FACTION[targetDie] || 'ruby';
+
+        // Vacate any prior seat claimed by this peer
+        for (const d of ['G1', 'G2', 'G3']) {
+          if (d !== targetDie && this.seats[d]?.peerId === peerId) {
+            const empty = { peerId: null, name: null, isAI: false, aiType: null, ready: false };
+            this.seats[d] = empty;
+            this.seats[GO_FIRST_TO_FACTION[d]] = empty;
           }
+        }
 
-          if (this.seats[targetFaction].peerId === null || this.seats[targetFaction].peerId === peerId || this.seats[targetFaction].isAI) {
-            this.seats[targetFaction] = {
-              peerId,
-              name: peerName || `Archon_${targetFaction}`,
-              isAI: false,
-              aiType: null,
-              ready: true
-            };
-            this.broadcastSeatState();
-            globalKvRegistry.updateRoomDebounced(this.roomCode, { seats: this.seats }, true);
+        if (this.seats[targetDie]?.peerId === null || this.seats[targetDie]?.peerId === peerId || this.seats[targetDie]?.isAI) {
+          const seatData = {
+            peerId,
+            name: peerName || `Player (${targetDie})`,
+            isAI: false,
+            aiType: null,
+            ready: true,
+            die: targetDie,
+            faction: targetFaction
+          };
+          this.seats[targetDie] = seatData;
+          this.seats[targetFaction] = seatData;
 
-            // Strict 3-Player Auto-Start Trigger:
-            // All 3 distinct human players must be seated with non-null unique peerIds
-            const activeHumans = ['ruby', 'cyan', 'amber']
-              .map(s => this.seats[s])
-              .filter(s => s && s.peerId && !s.isAI);
+          this.broadcastSeatState();
+          globalKvRegistry.claimSeat(this.roomCode, targetDie, peerId, peerName);
 
-            const distinctHumanPeerIds = new Set(activeHumans.map(s => s.peerId));
+          // Strict 3-Player Auto-Start Trigger:
+          // All 3 distinct human players must be seated with non-null unique peerIds
+          const activeHumans = ['G1', 'G2', 'G3']
+            .map(d => this.seats[d])
+            .filter(s => s && s.peerId && !s.isAI);
 
-            if (activeHumans.length === 3 && distinctHumanPeerIds.size === 3) {
-              console.log('[Mesh] All 3 distinct Go-First human players joined! Launching match automatically.');
-              const startEnvelope = createActionEnvelope(ACTION_TYPES.GAME_START, null, {
-                mode: 'CYCLIC_SHOWDOWN',
-                targetScore: 5,
-                seats: this.seats,
-                timestamp: Date.now()
-              });
-              this.broadcastAction(startEnvelope);
-              globalKvRegistry.updateRoomDebounced(this.roomCode, { status: 'ACTIVE', isFull: true, seats: this.seats });
+          const distinctHumanPeerIds = new Set(activeHumans.map(s => s.peerId));
 
-              for (const cb of this.listeners.gameStart) {
-                cb(startEnvelope.payload);
-              }
-            } else {
-              console.log(`[Mesh] Waiting for 3rd player (current distinct humans: ${distinctHumanPeerIds.size}/3)`);
+          if (activeHumans.length === 3 && distinctHumanPeerIds.size === 3) {
+            console.log('[Mesh] All 3 distinct Go-First human players joined! Launching match automatically.');
+            const startEnvelope = createActionEnvelope(ACTION_TYPES.GAME_START, null, {
+              mode: 'CYCLIC_SHOWDOWN',
+              targetScore: 5,
+              seats: this.seats,
+              timestamp: Date.now()
+            });
+            this.broadcastAction(startEnvelope);
+            globalKvRegistry.deleteRoom(this.roomCode);
+
+            for (const cb of this.listeners.gameStart) {
+              cb(startEnvelope.payload);
             }
+          } else {
+            console.log(`[Mesh] Waiting for 3rd player (current distinct humans: ${distinctHumanPeerIds.size}/3)`);
           }
         }
       }
@@ -261,12 +279,23 @@ export class PeerMeshManager {
     // Seat State broadcast from Host
     if (envelope.type === ACTION_TYPES.SEAT_STATE) {
       if (envelope.payload.seats) {
-        this.seats = envelope.payload.seats;
+        const raw = envelope.payload.seats;
+        const g1 = raw.G1 || raw.ruby || { peerId: null, name: null, isAI: false, ready: false };
+        const g2 = raw.G2 || raw.cyan || { peerId: null, name: null, isAI: false, ready: false };
+        const g3 = raw.G3 || raw.amber || { peerId: null, name: null, isAI: false, ready: false };
+        this.seats = {
+          G1: g1,
+          G2: g2,
+          G3: g3,
+          ruby: g1,
+          cyan: g2,
+          amber: g3
+        };
         // Determine local seat
         this.localSeat = null;
-        for (const seat of ['ruby', 'cyan', 'amber']) {
-          if (this.seats[seat]?.peerId === this.peerId) {
-            this.localSeat = seat;
+        for (const d of ['G1', 'G2', 'G3']) {
+          if (this.seats[d]?.peerId === this.peerId) {
+            this.localSeat = d;
             break;
           }
         }
@@ -292,29 +321,41 @@ export class PeerMeshManager {
   }
 
   /**
-   * Requests to claim a specific Go-First die seat or faction seat.
-   * @param {string} targetSeat - 'G1', 'G2', 'G3' or 'ruby', 'cyan', 'amber'
+   * Requests to claim a specific Go-First die seat.
+   * @param {string} targetSeat - 'G1', 'G2', 'G3'
    */
   claimSeat(targetSeat) {
-    const targetFaction = GO_FIRST_TO_FACTION[targetSeat] || targetSeat;
-    if (!['ruby', 'cyan', 'amber'].includes(targetFaction)) return;
+    const dieKey = targetSeat.startsWith('G') ? targetSeat : (FACTION_TO_GO_FIRST[targetSeat] || 'G1');
+    const factionKey = GO_FIRST_TO_FACTION[dieKey] || 'ruby';
 
     if (this.isHost) {
-      this.seats[targetFaction] = {
+      for (const d of ['G1', 'G2', 'G3']) {
+        if (d !== dieKey && this.seats[d]?.peerId === this.peerId) {
+          const empty = { peerId: null, name: null, isAI: false, aiType: null, ready: false };
+          this.seats[d] = empty;
+          this.seats[GO_FIRST_TO_FACTION[d]] = empty;
+        }
+      }
+      const hostSeatData = {
         peerId: this.peerId,
         name: this.peerName,
         isAI: false,
         aiType: null,
-        ready: true
+        ready: true,
+        die: dieKey,
+        faction: factionKey
       };
-      this.localSeat = targetFaction;
+      this.seats[dieKey] = hostSeatData;
+      this.seats[factionKey] = hostSeatData;
+      this.localSeat = dieKey;
       this.broadcastSeatState();
-      globalKvRegistry.updateRoomDebounced(this.roomCode, { seats: this.seats }, true);
+      globalKvRegistry.claimSeat(this.roomCode, dieKey, this.peerId, this.peerName);
     } else {
-      const claim = createActionEnvelope(ACTION_TYPES.SEAT_CLAIM, targetFaction, {
+      const claim = createActionEnvelope(ACTION_TYPES.SEAT_CLAIM, dieKey, {
+        die: dieKey,
+        seat: dieKey,
         peerId: this.peerId,
-        peerName: this.peerName,
-        seat: targetFaction
+        peerName: this.peerName
       });
       this.broadcastAction(claim);
     }

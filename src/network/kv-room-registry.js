@@ -1,54 +1,29 @@
 /**
- * TRIARCH: Cyclic Edge - Synadia JetStream KV Room Registry
- * Manages global public room discovery, Go-First die-driven matchmaking,
- * and state rehydration with free-tier quota guards:
- *  - Bucket: TRIARCH_ROOMS (TTL: 3600s, History: 1, MaxValueSize: 8192)
- *  - Key: room.<ROOM_CODE>
- *  - Throttled / debounced writes (max 1 write per 2000ms)
- *  - Real-time global discovery bus integration (BroadcastChannel & NATS)
- *  - Graceful degradation to in-memory / local fallback when JetStream is unavailable
+ * TRIARCH: Cyclic Edge - Unified Room Registry
+ * Single source of truth for public room discovery and Go-First die matchmaking.
+ * Integrates with LobbyDiscoveryBus (local/broadcast) and Synadia JetStream KV ('TRIARCH_ROOMS').
  */
 
 import { GO_FIRST_TO_FACTION, FACTION_TO_GO_FIRST } from './protocol.js';
-import { globalDiscoveryBus, DISCOVERY_ACTIONS, LOCAL_STORAGE_REGISTRY_KEY } from './discovery-bus.js';
+import { globalDiscoveryBus, DISCOVERY_ACTIONS } from './discovery-bus.js';
 
 export const KV_BUCKET_NAME = 'TRIARCH_ROOMS';
-export const KV_ROOM_TTL_SECONDS = 3600; // 1 hour auto-expiry
-export const KV_MAX_VALUE_SIZE = 8192; // 8 KB compact limit
-export const KV_WRITE_DEBOUNCE_MS = 2000; // 2s rate limit
-
-/**
- * @typedef {Object} RoomDescriptor
- * @property {string} roomCode
- * @property {string} gameName
- * @property {string} hostPeerId
- * @property {string} status - 'WAITING' | 'ACTIVE'
- * @property {number} createdAt
- * @property {number} updatedAt
- * @property {number} round
- * @property {string} phase
- * @property {Object} seats
- * @property {number} playerCount
- * @property {boolean} isFull
- */
+export const KV_ROOM_TTL_SECONDS = 3600; // 1 hour auto-expiry in NATS KV
+export const ROOM_STALE_TIMEOUT_MS = 6000; // 6 seconds stale pruning in lobby
 
 export class KvRoomRegistry {
   /**
    * @param {Object} [options={}]
-   * @param {any} [options.nc] - NATS connection instance
-   * @param {any} [options.kvStore] - Direct KV store instance (for testing/mocking)
-   * @param {any} [options.discoveryBus] - Custom discovery bus instance
+   * @param {any} [options.nc] - Optional NATS connection instance
+   * @param {any} [options.kvStore] - Optional direct KV mock or instance
+   * @param {import('./discovery-bus.js').LobbyDiscoveryBus} [options.bus]
    */
   constructor(options = {}) {
     this.nc = options.nc || null;
     this.kv = options.kvStore || null;
-    this.bus = options.discoveryBus || globalDiscoveryBus;
-    this.jc = null;
-
-    this.isAvailable = false;
-    this.localFallbackRooms = new Map(); // In-memory fallback map: roomKey -> RoomDescriptor
-    this._debounceTimers = new Map(); // roomCode -> timeout
-    this._pendingWrites = new Map(); // roomCode -> data
+    this.bus = options.bus || options.discoveryBus || globalDiscoveryBus;
+    this.isAvailable = !!this.kv;
+    this.localFallbackRooms = new Map(); // roomCode -> RoomDescriptor
     this._updateListeners = new Set();
 
     this._initCodec();
@@ -70,13 +45,13 @@ export class KvRoomRegistry {
   _initBus() {
     if (this.bus && typeof this.bus.onRoomUpdate === 'function') {
       this.bus.onRoomUpdate((action, payload) => {
-        if (action === DISCOVERY_ACTIONS.ROOM_ADVERTISE && payload && payload.roomCode) {
-          const key = KvRoomRegistry.getRoomKey(payload.roomCode);
-          this.localFallbackRooms.set(key, this.formatDescriptor(payload));
+        if (action === DISCOVERY_ACTIONS.ROOM_ANNOUNCE && payload && payload.roomCode) {
+          const code = payload.roomCode.toUpperCase();
+          this.localFallbackRooms.set(code, this.formatDescriptor(payload));
           this._notifyUpdate();
-        } else if (action === DISCOVERY_ACTIONS.ROOM_REMOVED && payload) {
-          const key = KvRoomRegistry.getRoomKey(payload);
-          this.localFallbackRooms.delete(key);
+        } else if (action === DISCOVERY_ACTIONS.ROOM_CLOSED && payload) {
+          const code = (typeof payload === 'string' ? payload : payload.roomCode || '').toUpperCase();
+          this.localFallbackRooms.delete(code);
           this._notifyUpdate();
         }
       });
@@ -115,9 +90,8 @@ export class KvRoomRegistry {
 
   /**
    * Initializes or binds to the JetStream KV bucket.
-   * Gracefully degrades to local in-memory fallback if JetStream is disabled.
    * @param {any} nc - NATS connection instance
-   * @returns {Promise<boolean>} Whether JetStream KV is active
+   * @returns {Promise<boolean>}
    */
   async init(nc = null) {
     if (nc) {
@@ -128,7 +102,6 @@ export class KvRoomRegistry {
       this.isAvailable = true;
       return true;
     }
-
     if (!this.nc) {
       this.isAvailable = false;
       return false;
@@ -138,147 +111,126 @@ export class KvRoomRegistry {
       if (typeof this.nc.jetstream === 'function') {
         const js = this.nc.jetstream();
         if (js && js.views && typeof js.views.kv === 'function') {
-          // Attempt to bind or create TRIARCH_ROOMS bucket
           try {
             this.kv = await js.views.kv(KV_BUCKET_NAME);
             this.isAvailable = true;
-            console.log(`[KV Registry] Bound to JetStream KV Bucket: ${KV_BUCKET_NAME}`);
             return true;
           } catch (bindErr) {
-            // Attempt to create bucket if permitted
             try {
-              if (typeof js.views.createKv === 'function') {
-                this.kv = await js.views.createKv(KV_BUCKET_NAME, {
-                  ttl: KV_ROOM_TTL_SECONDS * 1000,
-                  history: 1,
-                  maxValueSize: KV_MAX_VALUE_SIZE
-                });
-                this.isAvailable = true;
-                return true;
-              }
+              this.kv = await js.views.createKv(KV_BUCKET_NAME, {
+                ttl: KV_ROOM_TTL_SECONDS * 1000,
+                history: 1,
+                max_value_size: 8192
+              });
+              this.isAvailable = true;
+              return true;
             } catch (createErr) {
-              console.warn('[KV Registry] JetStream KV creation skipped (fallback mode active):', createErr.message);
+              this.isAvailable = false;
+              return false;
             }
           }
         }
       }
     } catch (err) {
-      console.warn('[KV Registry] JetStream unavailable, using fallback:', err.message);
+      this.isAvailable = false;
     }
-
-    this.isAvailable = false;
     return false;
   }
 
   /**
-   * Sanitizes and formats a RoomDescriptor for compact JSON serialization.
-   * Indexes seats strictly by Go-First dice (G1, G2, G3) with faction duality.
+   * Normalizes and validates a room descriptor to unified G1/G2/G3 schema.
    * @param {Object} rawData
-   * @returns {RoomDescriptor}
+   * @returns {Object} RoomDescriptor
    */
   formatDescriptor(rawData) {
     const rawSeats = rawData.seats || {};
 
-    const getSeat = (dieKey, factionKey, defaultName) => {
+    const buildSeat = (dieKey, factionKey, defaultName) => {
       const src = rawSeats[dieKey] || rawSeats[factionKey] || {};
-      const claimed = src.claimed ?? !!src.peerId ?? false;
+      const claimed = !!(src.claimed || src.peerId);
       return {
         peerId: src.peerId || null,
         name: src.name || (claimed ? defaultName : null),
-        claimed: !!claimed,
-        faction: factionKey,
-        isAI: !!src.isAI
+        claimed,
+        isAI: !!src.isAI,
+        die: dieKey,
+        faction: factionKey
       };
     };
 
-    const g1 = getSeat('G1', 'ruby', 'Ruby Archon');
-    const g2 = getSeat('G2', 'cyan', 'Cyan Sentinel');
-    const g3 = getSeat('G3', 'amber', 'Amber Keeper');
+    const g1 = buildSeat('G1', 'ruby', 'Ruby Archon');
+    const g2 = buildSeat('G2', 'cyan', 'Cyan Sentinel');
+    const g3 = buildSeat('G3', 'amber', 'Amber Keeper');
 
-    const seats = {
-      G1: g1,
-      G2: g2,
-      G3: g3,
-      ruby: g1,
-      cyan: g2,
-      amber: g3
-    };
+    let count = 0;
+    if (g1.claimed) count++;
+    if (g2.claimed) count++;
+    if (g3.claimed) count++;
+    if (count === 0) count = 1;
 
-    let playerCount = 0;
-    if (g1.claimed) playerCount++;
-    if (g2.claimed) playerCount++;
-    if (g3.claimed) playerCount++;
-    if (playerCount === 0) playerCount = 1;
-
-    const isFull = playerCount >= 3;
-    const status = isFull ? 'ACTIVE' : (rawData.status === 'ACTIVE' && isFull ? 'ACTIVE' : 'WAITING');
+    const isFull = count >= 3;
+    const status = isFull ? 'ACTIVE' : 'WAITING';
+    const roomCode = (rawData.roomCode || 'TR-XXXX').toUpperCase();
 
     return {
-      roomCode: (rawData.roomCode || 'TR-XXXX').toUpperCase(),
-      gameName: rawData.gameName || `${(rawData.roomCode || 'TR-XXXX').toUpperCase()} Arena`,
+      roomCode,
+      gameName: rawData.gameName || `${roomCode} Arena`,
       hostPeerId: rawData.hostPeerId || 'peer_host',
       status,
+      playerCount: count,
+      isFull,
       createdAt: rawData.createdAt || Date.now(),
-      updatedAt: Date.now(),
-      round: rawData.round || 1,
-      phase: rawData.phase || 'DEPLOY',
+      lastSeen: rawData.lastSeen || Date.now(),
       seats: {
         G1: g1,
         G2: g2,
         G3: g3,
+        // Aliases for game combat state adapter compatibility
         ruby: g1,
         cyan: g2,
         amber: g3
-      },
-      playerCount,
-      isFull
+      }
     };
   }
 
   /**
-   * Immediately registers a newly created room.
+   * Creates and registers a new room.
    * @param {string} roomCode
    * @param {string} hostPeerId
    * @param {Object} [initialData={}]
-   * @returns {Promise<RoomDescriptor>}
+   * @returns {Promise<Object>}
    */
   async createRoom(roomCode, hostPeerId, initialData = {}) {
+    const code = roomCode.toUpperCase();
     const hostDie = initialData.hostDie || 'G1';
-    const hostFaction = GO_FIRST_TO_FACTION[hostDie] || 'ruby';
     const hostName = initialData.hostName || 'Player 1 (Host)';
 
-    const seatsInit = initialData.seats || {
-      [hostDie]: { peerId: hostPeerId, name: hostName, claimed: true, faction: hostFaction, isAI: false }
+    const seatsInit = {
+      [hostDie]: { peerId: hostPeerId, name: hostName, claimed: true, isAI: false }
     };
 
     const descriptor = this.formatDescriptor({
       ...initialData,
-      roomCode,
+      roomCode: code,
       hostPeerId,
       status: 'WAITING',
       seats: seatsInit,
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      lastSeen: Date.now()
     });
 
-    const key = KvRoomRegistry.getRoomKey(roomCode);
-    const encoded = this.jc.encode(descriptor);
-
-    // Guard max payload size
-    if (encoded.length > KV_MAX_VALUE_SIZE) {
-      throw new Error(`Room payload exceeds max size limit (${encoded.length} > ${KV_MAX_VALUE_SIZE})`);
-    }
+    const key = KvRoomRegistry.getRoomKey(code);
 
     if (this.kv && typeof this.kv.put === 'function') {
       try {
-        await this.kv.put(key, encoded);
+        await this.kv.put(key, this.jc.encode(descriptor));
       } catch (err) {
-        console.warn('[KV Registry] Write error, saved to local cache:', err.message);
+        console.warn('[KV Registry] Put error:', err.message);
       }
     }
 
-    this.localFallbackRooms.set(key, descriptor);
+    this.localFallbackRooms.set(code, descriptor);
 
-    // Start live discovery advertising
     if (this.bus) {
       this.bus.startAdvertising(descriptor);
     }
@@ -288,17 +240,16 @@ export class KvRoomRegistry {
   }
 
   /**
-   * Claims a specific Go-First die seat in a room.
+   * Claims a Go-First die seat in an existing waiting room.
    * @param {string} roomCode
-   * @param {string} dieKey - 'G1', 'G2', 'G3' (or 'ruby', 'cyan', 'amber')
+   * @param {string} dieKey - 'G1' | 'G2' | 'G3'
    * @param {string} peerId
-   * @param {string} peerName
-   * @returns {Promise<RoomDescriptor>}
+   * @param {string} [peerName]
+   * @returns {Promise<Object>}
    */
-  async claimSeat(roomCode, dieKey, peerId, peerName) {
+  async claimSeat(roomCode, dieKey, peerId, peerName = null) {
     const code = roomCode.toUpperCase();
     const normalizedDie = dieKey.startsWith('G') ? dieKey : (FACTION_TO_GO_FIRST[dieKey] || 'G1');
-    const faction = GO_FIRST_TO_FACTION[normalizedDie] || 'ruby';
 
     const current = await this.getRoom(code);
     if (!current) {
@@ -310,13 +261,18 @@ export class KvRoomRegistry {
       throw new Error(`Go-First Die ${normalizedDie} is already claimed by ${currentSeat.name || 'another player'}`);
     }
 
-    // Update seat
+    // Vacate any other seat held by this peer
     const updatedSeats = { ...current.seats };
+    for (const d of ['G1', 'G2', 'G3']) {
+      if (d !== normalizedDie && updatedSeats[d]?.peerId === peerId) {
+        updatedSeats[d] = { peerId: null, name: null, claimed: false, isAI: false };
+      }
+    }
+
     updatedSeats[normalizedDie] = {
       peerId,
-      name: peerName || `Archon_${normalizedDie}`,
+      name: peerName || `Player (${normalizedDie})`,
       claimed: true,
-      faction,
       isAI: false
     };
 
@@ -326,44 +282,37 @@ export class KvRoomRegistry {
     if (updatedSeats.G3?.claimed) count++;
 
     const isFull = count >= 3;
-    const status = isFull ? 'ACTIVE' : current.status;
+    const status = isFull ? 'ACTIVE' : 'WAITING';
 
     const descriptor = this.formatDescriptor({
       ...current,
       seats: updatedSeats,
       status,
       playerCount: count,
-      isFull
+      isFull,
+      lastSeen: Date.now()
     });
 
     const key = KvRoomRegistry.getRoomKey(code);
-    const encoded = this.jc.encode(descriptor);
 
     if (this.kv && typeof this.kv.put === 'function') {
       try {
-        await this.kv.put(key, encoded);
+        if (isFull && typeof this.kv.delete === 'function') {
+          await this.kv.delete(key);
+        } else {
+          await this.kv.put(key, this.jc.encode(descriptor));
+        }
       } catch (err) {
-        console.warn('[KV Registry] Claim write error:', err.message);
+        console.warn('[KV Registry] Write error:', err.message);
       }
     }
 
-    this.localFallbackRooms.set(key, descriptor);
-
-    if (typeof localStorage !== 'undefined') {
-      try {
-        const raw = localStorage.getItem(LOCAL_STORAGE_REGISTRY_KEY);
-        const map = raw ? JSON.parse(raw) : {};
-        map[code] = descriptor;
-        localStorage.setItem(LOCAL_STORAGE_REGISTRY_KEY, JSON.stringify(map));
-      } catch (e) {}
-    }
-
-    if (this.bus) {
-      if (isFull) {
-        this.bus.stopAdvertising(code);
-      } else {
-        this.bus.updateDescriptor(code, descriptor);
-      }
+    if (isFull) {
+      this.localFallbackRooms.delete(code);
+      if (this.bus) this.bus.stopAdvertising(code);
+    } else {
+      this.localFallbackRooms.set(code, descriptor);
+      if (this.bus) this.bus.updateDescriptor(code, descriptor);
     }
 
     this._notifyUpdate();
@@ -371,106 +320,82 @@ export class KvRoomRegistry {
   }
 
   /**
-   * Debounced state update (max 1 write per 400ms) to conserve cloud quota.
+   * Debounced room state updater to protect quota limits.
    * @param {string} roomCode
-   * @param {Object} patchData
+   * @param {Object} updates
    * @param {boolean} [immediate=false]
    */
-  updateRoomDebounced(roomCode, patchData, immediate = false) {
+  updateRoomDebounced(roomCode, updates, immediate = false) {
     const code = roomCode.toUpperCase();
-    const existing = this._pendingWrites.get(code) || {};
-    this._pendingWrites.set(code, { ...existing, ...patchData });
+    if (!this._pendingUpdates) this._pendingUpdates = new Map();
+    if (!this._debounceTimers) this._debounceTimers = new Map();
 
-    if (immediate) {
-      if (this._debounceTimers.has(code)) {
-        clearTimeout(this._debounceTimers.get(code));
-        this._debounceTimers.delete(code);
-      }
-      const data = this._pendingWrites.get(code);
-      this._pendingWrites.delete(code);
-      if (data) {
-        this._flushRoomUpdate(code, data);
-      }
-      return;
-    }
+    const current = this._pendingUpdates.get(code) || {};
+    const merged = { ...current, ...updates };
+    this._pendingUpdates.set(code, merged);
 
     if (this._debounceTimers.has(code)) {
+      clearTimeout(this._debounceTimers.get(code));
+      this._debounceTimers.delete(code);
+    }
+
+    if (immediate) {
+      this._flushRoomUpdate(code, merged);
       return;
     }
 
     const timer = setTimeout(() => {
       this._debounceTimers.delete(code);
-      const data = this._pendingWrites.get(code);
-      this._pendingWrites.delete(code);
-      if (data) {
-        this._flushRoomUpdate(code, data);
+      const pending = this._pendingUpdates.get(code);
+      if (pending) {
+        this._pendingUpdates.delete(code);
+        this._flushRoomUpdate(code, pending);
       }
     }, 400);
 
     if (timer && typeof timer.unref === 'function') {
       timer.unref();
     }
-
     this._debounceTimers.set(code, timer);
   }
 
-  async _flushRoomUpdate(roomCode, patchData) {
-    const key = KvRoomRegistry.getRoomKey(roomCode);
-    let current = await this.getRoom(roomCode);
-    if (!current) {
-      current = { roomCode, hostPeerId: 'peer_host', createdAt: Date.now() };
-    }
+  async _flushRoomUpdate(roomCode, updates) {
+    const code = roomCode.toUpperCase();
+    const current = await this.getRoom(code);
+    if (!current) return;
 
-    const descriptor = this.formatDescriptor({
-      ...current,
-      ...patchData,
-      roomCode
-    });
-
-    const encoded = this.jc.encode(descriptor);
+    const formatted = this.formatDescriptor({ ...current, ...updates, lastSeen: Date.now() });
+    const key = KvRoomRegistry.getRoomKey(code);
 
     if (this.kv && typeof this.kv.put === 'function') {
       try {
-        await this.kv.put(key, encoded);
-      } catch (err) {
-        console.warn('[KV Registry] Update write error:', err.message);
-      }
-    }
-
-    this.localFallbackRooms.set(key, descriptor);
-
-    if (typeof localStorage !== 'undefined') {
-      try {
-        const raw = localStorage.getItem(LOCAL_STORAGE_REGISTRY_KEY);
-        const map = raw ? JSON.parse(raw) : {};
-        if (descriptor.isFull || descriptor.status === 'ACTIVE') {
-          delete map[roomCode];
+        if (formatted.isFull && typeof this.kv.delete === 'function') {
+          await this.kv.delete(key);
         } else {
-          map[roomCode] = descriptor;
+          await this.kv.put(key, this.jc.encode(formatted));
         }
-        localStorage.setItem(LOCAL_STORAGE_REGISTRY_KEY, JSON.stringify(map));
-      } catch (e) {}
+      } catch (err) {}
     }
 
-    if (this.bus) {
-      if (descriptor.isFull || descriptor.status === 'ACTIVE') {
-        this.bus.stopAdvertising(roomCode);
-      } else {
-        this.bus.updateDescriptor(roomCode, descriptor);
-      }
+    if (formatted.isFull) {
+      this.localFallbackRooms.delete(code);
+      if (this.bus) this.bus.stopAdvertising(code);
+    } else {
+      this.localFallbackRooms.set(code, formatted);
+      if (this.bus) this.bus.updateDescriptor(code, formatted);
     }
 
     this._notifyUpdate();
-    return descriptor;
   }
 
   /**
    * Retrieves a single room descriptor.
    * @param {string} roomCode
-   * @returns {Promise<RoomDescriptor|null>}
+   * @returns {Promise<Object|null>}
    */
   async getRoom(roomCode) {
-    const key = KvRoomRegistry.getRoomKey(roomCode);
+    const code = roomCode.toUpperCase();
+    const key = KvRoomRegistry.getRoomKey(code);
 
     if (this.kv && typeof this.kv.get === 'function') {
       try {
@@ -478,30 +403,29 @@ export class KvRoomRegistry {
         if (entry && entry.value) {
           const parsed = this.jc.decode(entry.value);
           const formatted = this.formatDescriptor(parsed);
-          this.localFallbackRooms.set(key, formatted);
+          this.localFallbackRooms.set(code, formatted);
           return formatted;
         }
-      } catch (err) {
-        // Fallback to local map
-      }
+      } catch (err) {}
     }
 
-    const cached = this.localFallbackRooms.get(key);
-    return cached ? this.formatDescriptor(cached) : null;
+    return this.localFallbackRooms.get(code) || null;
   }
 
   /**
-   * Lists all active public rooms, filtering out expired ones (> 1 hour).
+   * Lists all active waiting rooms, pruning stale rooms older than maxStaleMs (default: 6s).
    * @param {Object} [options={}]
-   * @param {boolean} [options.onlyWaiting=false] - Only return rooms in WAITING status
-   * @returns {Promise<RoomDescriptor[]>}
+   * @param {boolean} [options.onlyWaiting=false]
+   * @param {number} [options.maxStaleMs=6000]
+   * @returns {Promise<Object[]>}
    */
   async listActiveRooms(options = {}) {
+    const onlyWaiting = options.onlyWaiting ?? false;
+    const maxStaleMs = options.maxStaleMs || ROOM_STALE_TIMEOUT_MS;
     const now = Date.now();
-    const maxAgeMs = KV_ROOM_TTL_SECONDS * 1000;
     const roomMap = new Map();
 
-    // 1. Fetch from JetStream KV if available
+    // 1. Query NATS KV if active
     if (this.kv && typeof this.kv.keys === 'function') {
       try {
         const keyWatcher = await this.kv.keys();
@@ -511,9 +435,9 @@ export class KvRoomRegistry {
               const entry = await this.kv.get(k);
               if (entry && entry.value) {
                 const descriptor = this.jc.decode(entry.value);
-                if (descriptor && (now - descriptor.updatedAt) < maxAgeMs) {
-                  const formatted = this.formatDescriptor(descriptor);
-                  if (!options.onlyWaiting || (formatted.status === 'WAITING' && !formatted.isFull)) {
+                const formatted = this.formatDescriptor(descriptor);
+                if (now - formatted.lastSeen <= maxStaleMs) {
+                  if (!onlyWaiting || (formatted.status === 'WAITING' && !formatted.isFull)) {
                     roomMap.set(formatted.roomCode, formatted);
                   }
                 }
@@ -521,48 +445,29 @@ export class KvRoomRegistry {
             } catch (e) {}
           }
         }
-      } catch (err) {
-        // Use local fallback
-      }
+      } catch (err) {}
     }
 
-    // 2. Merge local fallback rooms
-    for (const desc of this.localFallbackRooms.values()) {
-      if (desc && (now - desc.updatedAt) < maxAgeMs) {
+    // 2. Query in-memory discovery fallback rooms with 6s stale pruning
+    for (const [code, desc] of this.localFallbackRooms.entries()) {
+      if (desc && (now - desc.lastSeen) <= maxStaleMs) {
         const formatted = this.formatDescriptor(desc);
-        if (!options.onlyWaiting || (formatted.status === 'WAITING' && !formatted.isFull)) {
+        if (!onlyWaiting || (formatted.status === 'WAITING' && !formatted.isFull)) {
           if (!roomMap.has(formatted.roomCode)) {
             roomMap.set(formatted.roomCode, formatted);
           }
         }
+      } else if (desc && (now - desc.lastSeen) > maxStaleMs) {
+        // Prune stale room
+        this.localFallbackRooms.delete(code);
       }
     }
 
-    // 3. Merge localStorage rooms (cross-tab fallback)
-    if (typeof localStorage !== 'undefined') {
-      try {
-        const raw = localStorage.getItem(LOCAL_STORAGE_REGISTRY_KEY);
-        if (raw) {
-          const storedMap = JSON.parse(raw);
-          for (const desc of Object.values(storedMap)) {
-            if (desc && (now - desc.updatedAt) < maxAgeMs) {
-              const formatted = this.formatDescriptor(desc);
-              if (!options.onlyWaiting || (formatted.status === 'WAITING' && !formatted.isFull)) {
-                if (!roomMap.has(formatted.roomCode)) {
-                  roomMap.set(formatted.roomCode, formatted);
-                }
-              }
-            }
-          }
-        }
-      } catch (e) {}
-    }
-
-    return Array.from(roomMap.values()).sort((a, b) => b.updatedAt - a.updatedAt);
+    return Array.from(roomMap.values()).sort((a, b) => (b.lastSeen || 0) - (a.lastSeen || 0));
   }
 
   /**
-   * Deletes a room entry from the registry (e.g. host leaves or match concludes).
+   * Deletes a room entry from the registry.
    * @param {string} roomCode
    * @returns {Promise<void>}
    */
@@ -570,21 +475,13 @@ export class KvRoomRegistry {
     const code = roomCode.toUpperCase();
     const key = KvRoomRegistry.getRoomKey(code);
 
-    if (this._debounceTimers.has(code)) {
-      clearTimeout(this._debounceTimers.get(code));
-      this._debounceTimers.delete(code);
-    }
-    this._pendingWrites.delete(code);
-
     if (this.kv && typeof this.kv.delete === 'function') {
       try {
         await this.kv.delete(key);
-      } catch (err) {
-        console.warn('[KV Registry] Delete error:', err.message);
-      }
+      } catch (err) {}
     }
 
-    this.localFallbackRooms.delete(key);
+    this.localFallbackRooms.delete(code);
 
     if (this.bus) {
       this.bus.stopAdvertising(code);

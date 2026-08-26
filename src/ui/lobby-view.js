@@ -502,6 +502,10 @@ export class MultiplayerLobbyModal {
 
     // Listeners
     overlay.querySelector('#btn-close-waiting').onclick = () => {
+      if (this.mesh.isHost && this.mesh.roomCode) {
+        globalKvRegistry.deleteRoom(this.mesh.roomCode);
+      }
+      this.mesh.disconnect();
       this.closeWaitingModal();
     };
 

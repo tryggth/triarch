@@ -204,4 +204,28 @@ describe('Die-Driven Matchmaking & Room Registry', () => {
     const tab4Discovered = await tab4Registry.listActiveRooms({ onlyWaiting: true });
     assert.equal(tab4Discovered.length, 0, 'Full/active rooms removed from available waiting list');
   });
+
+  test('Stale Room Pruning: Rooms with lastSeen older than 6 seconds are automatically pruned', async () => {
+    const mockKv = createMockKvStore();
+    const registry = new KvRoomRegistry({ kvStore: mockKv });
+
+    // Active room (fresh lastSeen)
+    const freshRoom = await registry.createRoom('TR-FRESH', 'peer_fresh', { hostDie: 'G1' });
+
+    // Stale room (lastSeen 7 seconds ago)
+    const staleDesc = registry.formatDescriptor({
+      roomCode: 'TR-STALE',
+      hostPeerId: 'peer_stale',
+      status: 'WAITING',
+      seats: { G1: { peerId: 'peer_stale', claimed: true } },
+      lastSeen: Date.now() - 7000
+    });
+    registry.localFallbackRooms.set('TR-STALE', staleDesc);
+
+    const activeRooms = await registry.listActiveRooms({ onlyWaiting: true, maxStaleMs: 6000 });
+    const roomCodes = activeRooms.map(r => r.roomCode);
+
+    assert.ok(roomCodes.includes('TR-FRESH'), 'Fresh room must be present');
+    assert.ok(!roomCodes.includes('TR-STALE'), 'Stale room older than 6s must be pruned');
+  });
 });
