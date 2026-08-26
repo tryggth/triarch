@@ -11,6 +11,7 @@ import { sfx } from '../audio/sfx.js';
 import { haptics } from '../audio/haptics.js';
 import { ACTION_TYPES, createActionEnvelope, GO_FIRST_TO_FACTION, FACTION_TO_GO_FIRST } from '../network/protocol.js';
 import { globalKvRegistry } from '../network/kv-room-registry.js';
+import { globalDiscoveryBus } from '../network/discovery-bus.js';
 import { GO_FIRST_DICE } from '../math/dice.js';
 
 export class MultiplayerLobbyModal {

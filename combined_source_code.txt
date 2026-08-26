@@ -1,6 +1,6 @@
 ================================================================================
  TRIARCH: CYCLIC EDGE - COMBINED SOURCE CODE BUNDLE
- Generated on: 2026-08-26T18:46:20.872Z
+ Generated on: 2026-08-26T18:49:15.992Z
  Total Source Files: 58
 ================================================================================
 
@@ -7055,6 +7055,7 @@ import { sfx } from '../audio/sfx.js';
 import { haptics } from '../audio/haptics.js';
 import { ACTION_TYPES, createActionEnvelope, GO_FIRST_TO_FACTION, FACTION_TO_GO_FIRST } from '../network/protocol.js';
 import { globalKvRegistry } from '../network/kv-room-registry.js';
+import { globalDiscoveryBus } from '../network/discovery-bus.js';
 import { GO_FIRST_DICE } from '../math/dice.js';
 
 export class MultiplayerLobbyModal {
