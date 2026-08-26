@@ -6,6 +6,7 @@
   "main": "src/math/index.js",
   "scripts": {
     "test": "node --test test/*.test.js",
+    "bundle": "node concat-source.js",
     "start": "python3 -m http.server 8080"
   },
   "keywords": [
