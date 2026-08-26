@@ -575,7 +575,7 @@ class TriarchApp {
         sfx.playClick();
         const success = this.net.activateShard('MIGHT');
         if (success) {
-          const seat = this.mesh.localSeat || 'ruby';
+          const seat = this.mesh.getLocalFaction();
           const active = this.game.players[seat].activeShard === 'MIGHT';
           toast.show(active ? '⚡ Vortex Shard activated (+1 Face Boost)!' : 'Vortex Shard deactivated.', 'info', 2000);
         } else {
@@ -589,7 +589,7 @@ class TriarchApp {
         sfx.playClick();
         const success = this.net.activateShard('SHIELD');
         if (success) {
-          const seat = this.mesh.localSeat || 'ruby';
+          const seat = this.mesh.getLocalFaction();
           const active = this.game.players[seat].activeShard === 'SHIELD';
           toast.show(active ? '🛡️ Aegis Shield activated (Wins Tiebreaks)!' : 'Aegis Shield deactivated.', 'info', 2000);
         } else {
@@ -601,7 +601,7 @@ class TriarchApp {
     if (btnStanceConceal) {
       btnStanceConceal.addEventListener('click', async () => {
         sfx.playClick();
-        const seat = this.mesh.localSeat || 'ruby';
+        const seat = this.mesh.getLocalFaction();
         const currentDie = this.game.players[seat].currentDie;
         await this.net.selectDie(currentDie.id, true);
       });
@@ -625,7 +625,7 @@ class TriarchApp {
         sfx.playClash();
         if (clashRecord.winnerId) {
           sfx.playDominanceChime();
-          toast.show(clashRecord.reason, clashRecord.winnerId === (this.mesh.localSeat || 'ruby') ? 'success' : 'info', 3000);
+          toast.show(clashRecord.reason, clashRecord.winnerId === this.mesh.getLocalFaction() ? 'success' : 'info', 3000);
         } else {
           toast.show(clashRecord.reason, 'warning', 3000);
         }
@@ -648,7 +648,7 @@ class TriarchApp {
     const hudAmber = document.getElementById('hud-amber');
 
     const getMeta = (seat) => {
-      const isLocal = (this.mesh.localSeat || 'ruby') === seat;
+      const isLocal = this.mesh.getLocalFaction() === seat;
       const isConcealed = this.net.peerCommitments.has(seat) && !this.net.peerReveals.has(seat) && !isLocal;
       const peerId = this.mesh.seats[seat]?.peerId;
       const latency = peerId ? this.mesh.latencies.get(peerId) : null;

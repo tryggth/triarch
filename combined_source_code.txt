@@ -1,6 +1,6 @@
 ================================================================================
  TRIARCH: CYCLIC EDGE - COMBINED SOURCE CODE BUNDLE
- Generated on: 2026-08-26T19:42:50.848Z
+ Generated on: 2026-08-26T19:50:18.388Z
  Total Source Files: 58
 ================================================================================
 
@@ -1456,7 +1456,7 @@ export class NetworkGameStateAdapter {
    * @param {boolean} [isConcealed=false] - Stance Concealment (Costs 4 Shards or Secret Draft)
    */
   async selectDie(dieId, isConcealed = false) {
-    const seat = this.mesh.localSeat || 'ruby';
+    const seat = this.mesh.getLocalFaction();
     const die = TRIARCH_STANDARD.find(d => d.id === dieId) || TRIARCH_STANDARD[0];
 
     if (!this.isMultiplayer) {
@@ -1499,7 +1499,7 @@ export class NetworkGameStateAdapter {
    * @param {string} shardId
    */
   activateShard(shardId) {
-    const seat = this.mesh.localSeat || 'ruby';
+    const seat = this.mesh.getLocalFaction();
     const success = this.game.activateShard(seat, shardId);
 
     if (success && this.isMultiplayer) {
@@ -1516,7 +1516,7 @@ export class NetworkGameStateAdapter {
    * In multiplayer, Host broadcasts authoritative rolls or seeds.
    */
   async executeClash() {
-    const seat = this.mesh.localSeat || 'ruby';
+    const seat = this.mesh.getLocalFaction();
 
     // 1. If local player had a concealed commitment, broadcast the reveal now!
     if (this.localConcealedSecret) {
@@ -4141,6 +4141,14 @@ export class PeerMeshManager {
     };
   }
 
+  /**
+   * Returns current local player's faction ('ruby' | 'cyan' | 'amber').
+   * @returns {string}
+   */
+  getLocalFaction() {
+    return GO_FIRST_TO_FACTION[this.localSeat] || this.localSeat || 'ruby';
+  }
+
   _resetSeats() {
     const defaultSeat = () => ({ peerId: null, name: null, isAI: false, aiType: null, ready: false });
     const g1 = defaultSeat();
@@ -4180,7 +4188,7 @@ export class PeerMeshManager {
     if (this.isHost) {
       const hostDie = initialDie.startsWith('G') ? initialDie : (FACTION_TO_GO_FIRST[initialDie] || 'G1');
       const hostFaction = GO_FIRST_TO_FACTION[hostDie] || 'ruby';
-      this.localSeat = hostDie;
+      this.localSeat = hostFaction;
       const hostSeatData = {
         peerId: this.peerId,
         name: this.peerName,
@@ -4389,9 +4397,9 @@ export class PeerMeshManager {
         };
         // Determine local seat
         this.localSeat = null;
-        for (const d of ['G1', 'G2', 'G3']) {
+        for (const d of ['G1', 'G2', 'G3', 'ruby', 'cyan', 'amber']) {
           if (this.seats[d]?.peerId === this.peerId) {
-            this.localSeat = d;
+            this.localSeat = GO_FIRST_TO_FACTION[d] || d;
             break;
           }
         }
@@ -4424,6 +4432,8 @@ export class PeerMeshManager {
     const dieKey = targetSeat.startsWith('G') ? targetSeat : (FACTION_TO_GO_FIRST[targetSeat] || 'G1');
     const factionKey = GO_FIRST_TO_FACTION[dieKey] || 'ruby';
 
+    this.localSeat = factionKey;
+
     if (this.isHost) {
       for (const d of ['G1', 'G2', 'G3']) {
         if (d !== dieKey && this.seats[d]?.peerId === this.peerId) {
@@ -4443,7 +4453,7 @@ export class PeerMeshManager {
       };
       this.seats[dieKey] = hostSeatData;
       this.seats[factionKey] = hostSeatData;
-      this.localSeat = dieKey;
+      this.localSeat = factionKey;
       this.broadcastSeatState();
       globalKvRegistry.claimSeat(this.roomCode, dieKey, this.peerId, this.peerName);
     } else {
@@ -6129,7 +6139,7 @@ class TriarchApp {
         sfx.playClick();
         const success = this.net.activateShard('MIGHT');
         if (success) {
-          const seat = this.mesh.localSeat || 'ruby';
+          const seat = this.mesh.getLocalFaction();
           const active = this.game.players[seat].activeShard === 'MIGHT';
           toast.show(active ? '⚡ Vortex Shard activated (+1 Face Boost)!' : 'Vortex Shard deactivated.', 'info', 2000);
         } else {
@@ -6143,7 +6153,7 @@ class TriarchApp {
         sfx.playClick();
         const success = this.net.activateShard('SHIELD');
         if (success) {
-          const seat = this.mesh.localSeat || 'ruby';
+          const seat = this.mesh.getLocalFaction();
           const active = this.game.players[seat].activeShard === 'SHIELD';
           toast.show(active ? '🛡️ Aegis Shield activated (Wins Tiebreaks)!' : 'Aegis Shield deactivated.', 'info', 2000);
         } else {
@@ -6155,7 +6165,7 @@ class TriarchApp {
     if (btnStanceConceal) {
       btnStanceConceal.addEventListener('click', async () => {
         sfx.playClick();
-        const seat = this.mesh.localSeat || 'ruby';
+        const seat = this.mesh.getLocalFaction();
         const currentDie = this.game.players[seat].currentDie;
         await this.net.selectDie(currentDie.id, true);
       });
@@ -6179,7 +6189,7 @@ class TriarchApp {
         sfx.playClash();
         if (clashRecord.winnerId) {
           sfx.playDominanceChime();
-          toast.show(clashRecord.reason, clashRecord.winnerId === (this.mesh.localSeat || 'ruby') ? 'success' : 'info', 3000);
+          toast.show(clashRecord.reason, clashRecord.winnerId === this.mesh.getLocalFaction() ? 'success' : 'info', 3000);
         } else {
           toast.show(clashRecord.reason, 'warning', 3000);
         }
@@ -6202,7 +6212,7 @@ class TriarchApp {
     const hudAmber = document.getElementById('hud-amber');
 
     const getMeta = (seat) => {
-      const isLocal = (this.mesh.localSeat || 'ruby') === seat;
+      const isLocal = this.mesh.getLocalFaction() === seat;
       const isConcealed = this.net.peerCommitments.has(seat) && !this.net.peerReveals.has(seat) && !isLocal;
       const peerId = this.mesh.seats[seat]?.peerId;
       const latency = peerId ? this.mesh.latencies.get(peerId) : null;

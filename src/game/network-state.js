@@ -112,7 +112,7 @@ export class NetworkGameStateAdapter {
    * @param {boolean} [isConcealed=false] - Stance Concealment (Costs 4 Shards or Secret Draft)
    */
   async selectDie(dieId, isConcealed = false) {
-    const seat = this.mesh.localSeat || 'ruby';
+    const seat = this.mesh.getLocalFaction();
     const die = TRIARCH_STANDARD.find(d => d.id === dieId) || TRIARCH_STANDARD[0];
 
     if (!this.isMultiplayer) {
@@ -155,7 +155,7 @@ export class NetworkGameStateAdapter {
    * @param {string} shardId
    */
   activateShard(shardId) {
-    const seat = this.mesh.localSeat || 'ruby';
+    const seat = this.mesh.getLocalFaction();
     const success = this.game.activateShard(seat, shardId);
 
     if (success && this.isMultiplayer) {
@@ -172,7 +172,7 @@ export class NetworkGameStateAdapter {
    * In multiplayer, Host broadcasts authoritative rolls or seeds.
    */
   async executeClash() {
-    const seat = this.mesh.localSeat || 'ruby';
+    const seat = this.mesh.getLocalFaction();
 
     // 1. If local player had a concealed commitment, broadcast the reveal now!
     if (this.localConcealedSecret) {

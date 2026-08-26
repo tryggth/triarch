@@ -45,6 +45,14 @@ export class PeerMeshManager {
     };
   }
 
+  /**
+   * Returns current local player's faction ('ruby' | 'cyan' | 'amber').
+   * @returns {string}
+   */
+  getLocalFaction() {
+    return GO_FIRST_TO_FACTION[this.localSeat] || this.localSeat || 'ruby';
+  }
+
   _resetSeats() {
     const defaultSeat = () => ({ peerId: null, name: null, isAI: false, aiType: null, ready: false });
     const g1 = defaultSeat();
@@ -84,7 +92,7 @@ export class PeerMeshManager {
     if (this.isHost) {
       const hostDie = initialDie.startsWith('G') ? initialDie : (FACTION_TO_GO_FIRST[initialDie] || 'G1');
       const hostFaction = GO_FIRST_TO_FACTION[hostDie] || 'ruby';
-      this.localSeat = hostDie;
+      this.localSeat = hostFaction;
       const hostSeatData = {
         peerId: this.peerId,
         name: this.peerName,
@@ -293,9 +301,9 @@ export class PeerMeshManager {
         };
         // Determine local seat
         this.localSeat = null;
-        for (const d of ['G1', 'G2', 'G3']) {
+        for (const d of ['G1', 'G2', 'G3', 'ruby', 'cyan', 'amber']) {
           if (this.seats[d]?.peerId === this.peerId) {
-            this.localSeat = d;
+            this.localSeat = GO_FIRST_TO_FACTION[d] || d;
             break;
           }
         }
@@ -328,6 +336,8 @@ export class PeerMeshManager {
     const dieKey = targetSeat.startsWith('G') ? targetSeat : (FACTION_TO_GO_FIRST[targetSeat] || 'G1');
     const factionKey = GO_FIRST_TO_FACTION[dieKey] || 'ruby';
 
+    this.localSeat = factionKey;
+
     if (this.isHost) {
       for (const d of ['G1', 'G2', 'G3']) {
         if (d !== dieKey && this.seats[d]?.peerId === this.peerId) {
@@ -347,7 +357,7 @@ export class PeerMeshManager {
       };
       this.seats[dieKey] = hostSeatData;
       this.seats[factionKey] = hostSeatData;
-      this.localSeat = dieKey;
+      this.localSeat = factionKey;
       this.broadcastSeatState();
       globalKvRegistry.claimSeat(this.roomCode, dieKey, this.peerId, this.peerName);
     } else {
