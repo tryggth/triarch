@@ -183,3 +183,29 @@ describe('Transport Factory Routing', () => {
     defaultTransport.leave();
   });
 });
+
+describe('Synadia Cloud / NGS Credentials', () => {
+  test('Exports valid JWT and NKEY seed format', async () => {
+    const { NGS_USER_JWT, NGS_NKEY_SEED, NGS_RAW_CREDS, getNgscAuthenticator } = await import('../src/network/creds/ngs-creds.js');
+
+    assert.ok(NGS_USER_JWT.startsWith('eyJ'));
+    assert.ok(NGS_NKEY_SEED.startsWith('SU'));
+    assert.ok(NGS_RAW_CREDS.includes('BEGIN NATS USER JWT'));
+    assert.ok(NGS_RAW_CREDS.includes('BEGIN USER NKEY SEED'));
+
+    // Mock nats module with credsAuthenticator
+    let capturedBytes = null;
+    const mockNatsWs = {
+      credsAuthenticator: (bytes) => {
+        capturedBytes = bytes;
+        return { auth: true };
+      }
+    };
+
+    const auth = getNgscAuthenticator(mockNatsWs);
+    assert.ok(auth);
+    assert.equal(auth.auth, true);
+    assert.ok(capturedBytes instanceof Uint8Array);
+  });
+});
+

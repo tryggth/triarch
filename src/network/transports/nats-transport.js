@@ -7,6 +7,7 @@
  */
 
 import { BaseTransport } from './base-transport.js';
+import { getNgscAuthenticator } from '../creds/ngs-creds.js';
 
 export const NATS_DEFAULT_SERVERS = [
   'wss://connect.ngs.global',
@@ -119,6 +120,12 @@ export class NatsSignalingTransport extends BaseTransport {
       }
       if (this.options.authenticator) {
         connectOpts.authenticator = this.options.authenticator;
+      } else if (!connectOpts.user && !connectOpts.token) {
+        // Use default Synadia Cloud authenticator
+        const defaultAuth = getNgscAuthenticator(natsWs);
+        if (defaultAuth) {
+          connectOpts.authenticator = defaultAuth;
+        }
       }
 
       this.nc = await natsWs.connect(connectOpts);

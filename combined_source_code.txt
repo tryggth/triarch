@@ -1,7 +1,7 @@
 ================================================================================
  TRIARCH: CYCLIC EDGE - COMBINED SOURCE CODE BUNDLE
- Generated on: 2026-08-26T17:01:07.567Z
- Total Source Files: 45
+ Generated on: 2026-08-26T17:25:21.861Z
+ Total Source Files: 48
 ================================================================================
 
 
@@ -2831,6 +2831,81 @@ export function detectIntransitiveCycles(diceList) {
 
 
 /* =============================================================================
+ * FILE: src/network/creds/NGS-RANDD-su.creds
+ * ============================================================================= */
+
+-----BEGIN NATS USER JWT-----
+eyJ0eXAiOiJKV1QiLCJhbGciOiJlZDI1NTE5LW5rZXkifQ.eyJqdGkiOiJENUtKWE00VVA0RkZLREpGTERRRFVLSjJYRENRQ1ZURFZYQUpHSVVLUUhWVVNJTVhJRDdBIiwiaWF0IjoxNzg3NzY0ODYzLCJpc3MiOiJBQTVXVVZZN1cyRjdBVk1ZMkVWT0JPNlVRTVVBVElZUVRFQk9SN1FMRE5MNlpQT1pITFJMT1ZXNyIsIm5hbWUiOiJzdSIsInN1YiI6IlVET0ZWR1BCUDVPVjVKUFJIQ05BTzdERldFR1kzSU5XQkFQWEVIWUo2NE5BNFkzWUQ0R0dDMkszIiwibmF0cyI6eyJwdWIiOnsiYWxsb3ciOlsiKiJdfSwic3ViIjp7ImFsbG93IjpbIioiXX0sInN1YnMiOi0xLCJkYXRhIjotMSwicGF5bG9hZCI6LTEsImlzc3Vlcl9hY2NvdW50IjoiQUFEUVYyWlRZTlNNNkNHT0Q0N0lHQ0VWVExCWE1BUzdWVlJSREM3VFRJWVpTM01aWVNISUpCNFEiLCJ0eXBlIjoidXNlciIsInZlcnNpb24iOjJ9fQ.7iKLxM_9MeBlySxY1MkqtCzkcPesTzJKB_jsAnbPHXrlRWHwcvCLfZet03WZE7Hcvpmj9OB7gso4lLfBg-XHDQ
+------END NATS USER JWT------
+
+************************* IMPORTANT *************************
+NKEY Seed printed below can be used to sign and prove identity.
+NKEYs are sensitive and should be treated as secrets.
+
+-----BEGIN USER NKEY SEED-----
+SUAF2F4LYTRORMF4CFFVV7VC275LFCQ6INZP3JCL72WO5JDMUF42DRZKJ4
+------END USER NKEY SEED------
+
+*************************************************************
+
+
+
+/* =============================================================================
+ * FILE: src/network/creds/index.js
+ * ============================================================================= */
+
+/**
+ * TRIARCH: Cyclic Edge - NATS Credentials Module Re-exports
+ */
+
+export * from './ngs-creds.js';
+
+
+
+/* =============================================================================
+ * FILE: src/network/creds/ngs-creds.js
+ * ============================================================================= */
+
+/**
+ * TRIARCH: Cyclic Edge - Synadia Cloud / NGS NATS Credentials
+ * Embedded credential strings for client authentication with wss://connect.ngs.global
+ */
+
+export const NGS_USER_JWT = `eyJ0eXAiOiJKV1QiLCJhbGciOiJlZDI1NTE5LW5rZXkifQ.eyJqdGkiOiJENUtKWE00VVA0RkZLREpGTERRRFVLSjJYRENRQ1ZURFZYQUpHSVVLUUhWVVNJTVhJRDdBIiwiaWF0IjoxNzg3NzY0ODYzLCJpc3MiOiJBQTVXVVZZN1cyRjdBVk1ZMkVWT0JPNlVRTVVBVElZUVRFQk9SN1FMRE5MNlpQT1pITFJMT1ZXNyIsIm5hbWUiOiJzdSIsInN1YiI6IlVET0ZWR1BCUDVPVjVKUFJIQ05BTzdERldFR1kzSU5XQkFQWEVIWUo2NE5BNFkzWUQ0R0dDMkszIiwibmF0cyI6eyJwdWIiOnsiYWxsb3ciOlsiKiJdfSwic3ViIjp7ImFsbG93IjpbIioiXX0sInN1YnMiOi0xLCJkYXRhIjotMSwicGF5bG9hZCI6LTEsImlzc3Vlcl9hY2NvdW50IjoiQUFEUVYyWlRZTlNNNkNHT0Q0N0lHQ0VWVExCWE1BUzdWVlJSREM3VFRJWVpTM01aWVNISUpCNFEiLCJ0eXBlIjoidXNlciIsInZlcnNpb24iOjJ9fQ.7iKLxM_9MeBlySxY1MkqtCzkcPesTzJKB_jsAnbPHXrlRWHwcvCLfZet03WZE7Hcvpmj9OB7gso4lLfBg-XHDQ`;
+
+export const NGS_NKEY_SEED = `SUAF2F4LYTRORMF4CFFVV7VC275LFCQ6INZP3JCL72WO5JDMUF42DRZKJ4`;
+
+export const NGS_RAW_CREDS = `-----BEGIN NATS USER JWT-----
+${NGS_USER_JWT}
+------END NATS USER JWT------
+
+************************* IMPORTANT *************************
+NKEY Seed printed below can be used to sign and prove identity.
+NKEYs are sensitive and should be treated as secrets.
+
+-----BEGIN USER NKEY SEED-----
+${NGS_NKEY_SEED}
+------END USER NKEY SEED------
+
+*************************************************************
+`;
+
+/**
+ * Creates a nats.ws creds authenticator using the embedded credentials.
+ * @param {Object} natsWsModule - The imported nats.ws module instance
+ * @returns {any} Authenticator instance for nats.connect()
+ */
+export function getNgscAuthenticator(natsWsModule) {
+  if (natsWsModule && typeof natsWsModule.credsAuthenticator === 'function') {
+    const encoder = new TextEncoder();
+    return natsWsModule.credsAuthenticator(encoder.encode(NGS_RAW_CREDS));
+  }
+  return null;
+}
+
+
+
+/* =============================================================================
  * FILE: src/network/index.js
  * ============================================================================= */
 
@@ -3778,6 +3853,7 @@ export function createTransport(type = TRANSPORT_TYPES.BROADCAST, roomCode, peer
  */
 
 import { BaseTransport } from './base-transport.js';
+import { getNgscAuthenticator } from '../creds/ngs-creds.js';
 
 export const NATS_DEFAULT_SERVERS = [
   'wss://connect.ngs.global',
@@ -3890,6 +3966,12 @@ export class NatsSignalingTransport extends BaseTransport {
       }
       if (this.options.authenticator) {
         connectOpts.authenticator = this.options.authenticator;
+      } else if (!connectOpts.user && !connectOpts.token) {
+        // Use default Synadia Cloud authenticator
+        const defaultAuth = getNgscAuthenticator(natsWs);
+        if (defaultAuth) {
+          connectOpts.authenticator = defaultAuth;
+        }
       }
 
       this.nc = await natsWs.connect(connectOpts);
@@ -7594,6 +7676,32 @@ describe('Transport Factory Routing', () => {
     defaultTransport.leave();
   });
 });
+
+describe('Synadia Cloud / NGS Credentials', () => {
+  test('Exports valid JWT and NKEY seed format', async () => {
+    const { NGS_USER_JWT, NGS_NKEY_SEED, NGS_RAW_CREDS, getNgscAuthenticator } = await import('../src/network/creds/ngs-creds.js');
+
+    assert.ok(NGS_USER_JWT.startsWith('eyJ'));
+    assert.ok(NGS_NKEY_SEED.startsWith('SU'));
+    assert.ok(NGS_RAW_CREDS.includes('BEGIN NATS USER JWT'));
+    assert.ok(NGS_RAW_CREDS.includes('BEGIN USER NKEY SEED'));
+
+    // Mock nats module with credsAuthenticator
+    let capturedBytes = null;
+    const mockNatsWs = {
+      credsAuthenticator: (bytes) => {
+        capturedBytes = bytes;
+        return { auth: true };
+      }
+    };
+
+    const auth = getNgscAuthenticator(mockNatsWs);
+    assert.ok(auth);
+    assert.equal(auth.auth, true);
+    assert.ok(capturedBytes instanceof Uint8Array);
+  });
+});
+
 
 
 
