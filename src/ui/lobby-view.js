@@ -140,7 +140,7 @@ export class MultiplayerLobbyModal {
             </div>
             <div class="sm:col-span-4 flex items-end">
               <button id="btn-launch-lobby" class="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-rose-500 via-indigo-600 to-cyan-500 hover:opacity-95 text-white font-bold font-mono text-xs tracking-wider shadow-[0_0_20px_#6366f150] transition-all">
-                👑 Launch Lobby ➔
+                👑 Launch Room ➔
               </button>
             </div>
           </div>
@@ -580,13 +580,15 @@ export class MultiplayerLobbyModal {
 
     // Update dynamic status label
     const humanCount = ['ruby', 'cyan', 'amber'].filter(s => this.mesh.seats[s]?.peerId && !this.mesh.seats[s]?.isAI).length;
+    const distinctHumans = new Set(['ruby', 'cyan', 'amber'].map(s => this.mesh.seats[s]?.peerId).filter(Boolean)).size;
+    const count = Math.min(humanCount, distinctHumans);
     const statusLabel = this.waitingModal.querySelector('#waiting-status-label');
     if (statusLabel) {
-      if (humanCount === 3) {
+      if (count === 3) {
         statusLabel.textContent = 'All 3 players ready! Launching...';
         statusLabel.className = 'text-emerald-400 font-bold';
       } else {
-        statusLabel.textContent = `Waiting for 3 players... (${humanCount}/3 connected)`;
+        statusLabel.textContent = `Waiting for 3 players... (${count}/3 connected)`;
         statusLabel.className = 'text-amber-400 font-bold';
       }
     }

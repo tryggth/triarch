@@ -146,13 +146,6 @@ export class PeerMeshManager {
     });
     this.transport.broadcast(serializeAction(hello));
 
-    // If joining as non-host, automatically request first available open seat
-    if (!this.isHost) {
-      setTimeout(() => {
-        this.requestAvailableSeat();
-      }, 300);
-    }
-
     this._notifySeatState();
   }
 
@@ -210,6 +203,19 @@ export class PeerMeshManager {
         const { peerId, peerName, seat } = envelope.payload;
         const targetFaction = GO_FIRST_TO_FACTION[seat] || seat;
         if (['ruby', 'cyan', 'amber'].includes(targetFaction)) {
+          // Vacate any prior seat claimed by this peer
+          for (const s of ['ruby', 'cyan', 'amber']) {
+            if (s !== targetFaction && this.seats[s].peerId === peerId) {
+              this.seats[s] = {
+                peerId: null,
+                name: null,
+                isAI: false,
+                aiType: null,
+                ready: false
+              };
+            }
+          }
+
           if (this.seats[targetFaction].peerId === null || this.seats[targetFaction].peerId === peerId || this.seats[targetFaction].isAI) {
             this.seats[targetFaction] = {
               peerId,
