@@ -3,9 +3,16 @@
  * Non-blocking, glassmorphic toast notification queue for PWA updates, combat events, and warnings.
  */
 
+export const APP_VERSION = '1.11.0';
+
 class ToastManager {
-  constructor() {
+  constructor(version = APP_VERSION) {
     this.container = null;
+    this.version = version;
+  }
+
+  setVersion(ver) {
+    this.version = ver;
   }
 
   _getContainer() {
@@ -51,8 +58,14 @@ class ToastManager {
     toast.className = `pointer-events-auto px-4 py-3 rounded-2xl border backdrop-blur-xl shadow-2xl text-xs sm:text-sm font-bold flex items-center justify-between gap-3 transform transition-all duration-300 translate-y-[-10px] opacity-0 ${styles[type] || styles.info}`;
 
     const contentDiv = document.createElement('div');
-    contentDiv.className = 'flex items-center gap-2.5';
-    contentDiv.innerHTML = `<span class="text-base">${icons[type] || 'ℹ️'}</span><span>${message}</span>`;
+    contentDiv.className = 'flex items-center justify-between gap-2.5 w-full';
+    contentDiv.innerHTML = `
+      <div class="flex items-center gap-2">
+        <span class="text-base">${icons[type] || 'ℹ️'}</span>
+        <span>${message}</span>
+      </div>
+      <span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-black/50 border border-white/10 text-slate-300 shrink-0">v${this.version}</span>
+    `;
     toast.appendChild(contentDiv);
 
     if (action) {

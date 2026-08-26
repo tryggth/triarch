@@ -1,6 +1,6 @@
 ================================================================================
  TRIARCH: CYCLIC EDGE - COMBINED SOURCE CODE BUNDLE
- Generated on: 2026-08-26T18:33:30.320Z
+ Generated on: 2026-08-26T18:46:20.872Z
  Total Source Files: 58
 ================================================================================
 
@@ -3305,13 +3305,13 @@ export class LobbyDiscoveryBus {
     const code = roomCode.toUpperCase();
     if (this._activeDescriptors.has(code)) {
       this._activeDescriptors.set(code, updatedDescriptor);
-      this._saveToLocalStorage(updatedDescriptor);
-      this._post({
-        type: DISCOVERY_ACTIONS.ROOM_ADVERTISE,
-        descriptor: updatedDescriptor,
-        t: Date.now()
-      });
     }
+    this._saveToLocalStorage(updatedDescriptor);
+    this._post({
+      type: DISCOVERY_ACTIONS.ROOM_ADVERTISE,
+      descriptor: updatedDescriptor,
+      t: Date.now()
+    });
   }
 
   /**
@@ -3621,7 +3621,7 @@ export class KvRoomRegistry {
     if (playerCount === 0) playerCount = 1;
 
     const isFull = playerCount >= 3;
-    const status = rawData.status ? rawData.status : (isFull ? 'ACTIVE' : 'WAITING');
+    const status = isFull ? 'ACTIVE' : (rawData.status === 'ACTIVE' && isFull ? 'ACTIVE' : 'WAITING');
 
     return {
       roomCode: (rawData.roomCode || 'TR-XXXX').toUpperCase(),
@@ -3759,6 +3759,15 @@ export class KvRoomRegistry {
 
     this.localFallbackRooms.set(key, descriptor);
 
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const raw = localStorage.getItem(LOCAL_STORAGE_REGISTRY_KEY);
+        const map = raw ? JSON.parse(raw) : {};
+        map[code] = descriptor;
+        localStorage.setItem(LOCAL_STORAGE_REGISTRY_KEY, JSON.stringify(map));
+      } catch (e) {}
+    }
+
     if (this.bus) {
       if (isFull) {
         this.bus.stopAdvertising(code);
@@ -3772,31 +3781,41 @@ export class KvRoomRegistry {
   }
 
   /**
-   * Debounced state update (max 1 write per 2000ms) to conserve cloud quota.
+   * Debounced state update (max 1 write per 400ms) to conserve cloud quota.
    * @param {string} roomCode
    * @param {Object} patchData
+   * @param {boolean} [immediate=false]
    */
-  updateRoomDebounced(roomCode, patchData) {
+  updateRoomDebounced(roomCode, patchData, immediate = false) {
     const code = roomCode.toUpperCase();
-    const existingPending = this._pendingWrites.get(code) || {};
-    this._pendingWrites.set(code, { ...existingPending, ...patchData });
+    const existing = this._pendingWrites.get(code) || {};
+    this._pendingWrites.set(code, { ...existing, ...patchData });
 
-    if (this._debounceTimers.has(code)) {
-      return; // Debounce window active
+    if (immediate) {
+      if (this._debounceTimers.has(code)) {
+        clearTimeout(this._debounceTimers.get(code));
+        this._debounceTimers.delete(code);
+      }
+      const data = this._pendingWrites.get(code);
+      this._pendingWrites.delete(code);
+      if (data) {
+        this._flushRoomUpdate(code, data);
+      }
+      return;
     }
 
-    const timer = setTimeout(async () => {
+    if (this._debounceTimers.has(code)) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
       this._debounceTimers.delete(code);
-      const dataToFlush = this._pendingWrites.get(code);
+      const data = this._pendingWrites.get(code);
       this._pendingWrites.delete(code);
-      if (dataToFlush) {
-        try {
-          await this._flushRoomUpdate(code, dataToFlush);
-        } catch (err) {
-          console.warn('[KV Registry] Flush error:', err);
-        }
+      if (data) {
+        this._flushRoomUpdate(code, data);
       }
-    }, KV_WRITE_DEBOUNCE_MS);
+    }, 400);
 
     if (timer && typeof timer.unref === 'function') {
       timer.unref();
@@ -3829,6 +3848,19 @@ export class KvRoomRegistry {
     }
 
     this.localFallbackRooms.set(key, descriptor);
+
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const raw = localStorage.getItem(LOCAL_STORAGE_REGISTRY_KEY);
+        const map = raw ? JSON.parse(raw) : {};
+        if (descriptor.isFull || descriptor.status === 'ACTIVE') {
+          delete map[roomCode];
+        } else {
+          map[roomCode] = descriptor;
+        }
+        localStorage.setItem(LOCAL_STORAGE_REGISTRY_KEY, JSON.stringify(map));
+      } catch (e) {}
+    }
 
     if (this.bus) {
       if (descriptor.isFull || descriptor.status === 'ACTIVE') {
@@ -4417,7 +4449,7 @@ export class PeerMeshManager {
               ready: true
             };
             this.broadcastSeatState();
-            globalKvRegistry.updateRoomDebounced(this.roomCode, { seats: this.seats });
+            globalKvRegistry.updateRoomDebounced(this.roomCode, { seats: this.seats }, true);
 
             // Strict 3-Player Auto-Start Trigger:
             // All 3 distinct human players must be seated with non-null unique peerIds
@@ -4501,7 +4533,7 @@ export class PeerMeshManager {
       };
       this.localSeat = targetFaction;
       this.broadcastSeatState();
-      globalKvRegistry.updateRoomDebounced(this.roomCode, { seats: this.seats });
+      globalKvRegistry.updateRoomDebounced(this.roomCode, { seats: this.seats }, true);
     } else {
       const claim = createActionEnvelope(ACTION_TYPES.SEAT_CLAIM, targetFaction, {
         peerId: this.peerId,
@@ -7089,7 +7121,20 @@ export class MultiplayerLobbyModal {
       }
     });
 
-    // Start background lobby query polling (solicits active hosts across tabs/devices)
+    if (this._unsubscribeBus) {
+      this._unsubscribeBus();
+      this._unsubscribeBus = null;
+    }
+    this._unsubscribeBus = globalDiscoveryBus.onRoomUpdate(() => {
+      if (this.isOpen()) {
+        this.loadAndRenderRooms();
+      }
+    });
+
+    // Solicit active hosts immediately upon opening
+    globalKvRegistry.broadcastLobbyQuery();
+
+    // Start background lobby query polling (every 1.5s)
     if (this._discoveryPollTimer) {
       clearInterval(this._discoveryPollTimer);
       this._discoveryPollTimer = null;
@@ -7098,7 +7143,7 @@ export class MultiplayerLobbyModal {
       if (this.isOpen()) {
         globalKvRegistry.broadcastLobbyQuery();
       }
-    }, 2500);
+    }, 1500);
 
     const overlay = document.createElement('div');
     overlay.id = 'lobby-modal-overlay';
@@ -7300,6 +7345,8 @@ export class MultiplayerLobbyModal {
     };
 
     this.loadAndRenderRooms();
+    setTimeout(() => this.loadAndRenderRooms(), 150);
+    setTimeout(() => this.loadAndRenderRooms(), 500);
 
     if (prefilledRoomCode) {
       this.joinRoomWithDie(prefilledRoomCode, 'G2');
@@ -7603,6 +7650,10 @@ export class MultiplayerLobbyModal {
     if (this._unsubscribeRooms) {
       this._unsubscribeRooms();
       this._unsubscribeRooms = null;
+    }
+    if (this._unsubscribeBus) {
+      this._unsubscribeBus();
+      this._unsubscribeBus = null;
     }
     if (this.qrScanner) {
       this.qrScanner.stop();
@@ -8591,9 +8642,16 @@ export class CameraQRScanner {
  * Non-blocking, glassmorphic toast notification queue for PWA updates, combat events, and warnings.
  */
 
+export const APP_VERSION = '1.11.0';
+
 class ToastManager {
-  constructor() {
+  constructor(version = APP_VERSION) {
     this.container = null;
+    this.version = version;
+  }
+
+  setVersion(ver) {
+    this.version = ver;
   }
 
   _getContainer() {
@@ -8639,8 +8697,14 @@ class ToastManager {
     toast.className = `pointer-events-auto px-4 py-3 rounded-2xl border backdrop-blur-xl shadow-2xl text-xs sm:text-sm font-bold flex items-center justify-between gap-3 transform transition-all duration-300 translate-y-[-10px] opacity-0 ${styles[type] || styles.info}`;
 
     const contentDiv = document.createElement('div');
-    contentDiv.className = 'flex items-center gap-2.5';
-    contentDiv.innerHTML = `<span class="text-base">${icons[type] || 'ℹ️'}</span><span>${message}</span>`;
+    contentDiv.className = 'flex items-center justify-between gap-2.5 w-full';
+    contentDiv.innerHTML = `
+      <div class="flex items-center gap-2">
+        <span class="text-base">${icons[type] || 'ℹ️'}</span>
+        <span>${message}</span>
+      </div>
+      <span class="text-[9px] font-mono px-1.5 py-0.5 rounded bg-black/50 border border-white/10 text-slate-300 shrink-0">v${this.version}</span>
+    `;
     toast.appendChild(contentDiv);
 
     if (action) {
@@ -10198,6 +10262,63 @@ describe('Die-Driven Matchmaking & Room Registry', () => {
 
     assert.ok(waitingCodes.includes('TR-OPEN'));
     assert.ok(!waitingCodes.includes('TR-BUSY'), 'Full/ACTIVE rooms must not appear in waiting list');
+  });
+
+  test('Verification Workflow: Tab 1 creates G1, Tab 2 joins G2 (room stays WAITING 2/3), Tab 3 discovers & joins G3 (room launches 3/3)', async () => {
+    const mockKv = createMockKvStore();
+
+    // 1. Tab 1 (Host): Creates room with G1
+    const hostRegistry = new KvRoomRegistry({ kvStore: mockKv });
+    const room = await hostRegistry.createRoom('TR-VERIFY', 'peer_tab1', {
+      gameName: 'Grand Championship',
+      hostDie: 'G1',
+      hostName: 'Player 1'
+    });
+
+    assert.equal(room.roomCode, 'TR-VERIFY');
+    assert.equal(room.playerCount, 1);
+    assert.equal(room.status, 'WAITING');
+    assert.equal(room.isFull, false);
+    assert.equal(room.seats.G1.claimed, true);
+    assert.equal(room.seats.G2.claimed, false);
+    assert.equal(room.seats.G3.claimed, false);
+
+    // 2. Tab 2 (Joiner): Discovers room and claims G2
+    const tab2Registry = new KvRoomRegistry({ kvStore: mockKv });
+    const tab2Discovered = await tab2Registry.listActiveRooms({ onlyWaiting: true });
+    assert.equal(tab2Discovered.length, 1);
+    assert.equal(tab2Discovered[0].roomCode, 'TR-VERIFY');
+
+    const roomAfterTab2 = await tab2Registry.claimSeat('TR-VERIFY', 'G2', 'peer_tab2', 'Player 2');
+    assert.equal(roomAfterTab2.playerCount, 2);
+    assert.equal(roomAfterTab2.status, 'WAITING', 'Must remain WAITING after 2nd player joins');
+    assert.equal(roomAfterTab2.isFull, false, 'Must NOT be full after 2nd player joins');
+    assert.equal(roomAfterTab2.seats.G1.claimed, true);
+    assert.equal(roomAfterTab2.seats.G2.claimed, true);
+    assert.equal(roomAfterTab2.seats.G3.claimed, false);
+
+    // 3. Tab 3 (3rd Player): Discovers room with 2 players and claims G3
+    const tab3Registry = new KvRoomRegistry({ kvStore: mockKv });
+    const tab3Discovered = await tab3Registry.listActiveRooms({ onlyWaiting: true });
+    assert.equal(tab3Discovered.length, 1, 'Tab 3 must discover room with 2 connected players');
+    assert.equal(tab3Discovered[0].roomCode, 'TR-VERIFY');
+    assert.equal(tab3Discovered[0].playerCount, 2);
+    assert.equal(tab3Discovered[0].seats.G1.claimed, true);
+    assert.equal(tab3Discovered[0].seats.G2.claimed, true);
+    assert.equal(tab3Discovered[0].seats.G3.claimed, false);
+
+    const roomAfterTab3 = await tab3Registry.claimSeat('TR-VERIFY', 'G3', 'peer_tab3', 'Player 3');
+    assert.equal(roomAfterTab3.playerCount, 3);
+    assert.equal(roomAfterTab3.status, 'ACTIVE', 'Transitions to ACTIVE only when 3rd player joins');
+    assert.equal(roomAfterTab3.isFull, true);
+    assert.equal(roomAfterTab3.seats.G1.claimed, true);
+    assert.equal(roomAfterTab3.seats.G2.claimed, true);
+    assert.equal(roomAfterTab3.seats.G3.claimed, true);
+
+    // 4. Tab 4: Room is now active/full, no longer in waiting list
+    const tab4Registry = new KvRoomRegistry({ kvStore: mockKv });
+    const tab4Discovered = await tab4Registry.listActiveRooms({ onlyWaiting: true });
+    assert.equal(tab4Discovered.length, 0, 'Full/active rooms removed from available waiting list');
   });
 });
 

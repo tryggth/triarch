@@ -77,7 +77,20 @@ export class MultiplayerLobbyModal {
       }
     });
 
-    // Start background lobby query polling (solicits active hosts across tabs/devices)
+    if (this._unsubscribeBus) {
+      this._unsubscribeBus();
+      this._unsubscribeBus = null;
+    }
+    this._unsubscribeBus = globalDiscoveryBus.onRoomUpdate(() => {
+      if (this.isOpen()) {
+        this.loadAndRenderRooms();
+      }
+    });
+
+    // Solicit active hosts immediately upon opening
+    globalKvRegistry.broadcastLobbyQuery();
+
+    // Start background lobby query polling (every 1.5s)
     if (this._discoveryPollTimer) {
       clearInterval(this._discoveryPollTimer);
       this._discoveryPollTimer = null;
@@ -86,7 +99,7 @@ export class MultiplayerLobbyModal {
       if (this.isOpen()) {
         globalKvRegistry.broadcastLobbyQuery();
       }
-    }, 2500);
+    }, 1500);
 
     const overlay = document.createElement('div');
     overlay.id = 'lobby-modal-overlay';
@@ -288,6 +301,8 @@ export class MultiplayerLobbyModal {
     };
 
     this.loadAndRenderRooms();
+    setTimeout(() => this.loadAndRenderRooms(), 150);
+    setTimeout(() => this.loadAndRenderRooms(), 500);
 
     if (prefilledRoomCode) {
       this.joinRoomWithDie(prefilledRoomCode, 'G2');
@@ -591,6 +606,10 @@ export class MultiplayerLobbyModal {
     if (this._unsubscribeRooms) {
       this._unsubscribeRooms();
       this._unsubscribeRooms = null;
+    }
+    if (this._unsubscribeBus) {
+      this._unsubscribeBus();
+      this._unsubscribeBus = null;
     }
     if (this.qrScanner) {
       this.qrScanner.stop();

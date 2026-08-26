@@ -219,7 +219,7 @@ export class PeerMeshManager {
               ready: true
             };
             this.broadcastSeatState();
-            globalKvRegistry.updateRoomDebounced(this.roomCode, { seats: this.seats });
+            globalKvRegistry.updateRoomDebounced(this.roomCode, { seats: this.seats }, true);
 
             // Strict 3-Player Auto-Start Trigger:
             // All 3 distinct human players must be seated with non-null unique peerIds
@@ -303,7 +303,7 @@ export class PeerMeshManager {
       };
       this.localSeat = targetFaction;
       this.broadcastSeatState();
-      globalKvRegistry.updateRoomDebounced(this.roomCode, { seats: this.seats });
+      globalKvRegistry.updateRoomDebounced(this.roomCode, { seats: this.seats }, true);
     } else {
       const claim = createActionEnvelope(ACTION_TYPES.SEAT_CLAIM, targetFaction, {
         peerId: this.peerId,

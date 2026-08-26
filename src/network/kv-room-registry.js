@@ -211,7 +211,7 @@ export class KvRoomRegistry {
     if (playerCount === 0) playerCount = 1;
 
     const isFull = playerCount >= 3;
-    const status = rawData.status ? rawData.status : (isFull ? 'ACTIVE' : 'WAITING');
+    const status = isFull ? 'ACTIVE' : (rawData.status === 'ACTIVE' && isFull ? 'ACTIVE' : 'WAITING');
 
     return {
       roomCode: (rawData.roomCode || 'TR-XXXX').toUpperCase(),
@@ -349,6 +349,15 @@ export class KvRoomRegistry {
 
     this.localFallbackRooms.set(key, descriptor);
 
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const raw = localStorage.getItem(LOCAL_STORAGE_REGISTRY_KEY);
+        const map = raw ? JSON.parse(raw) : {};
+        map[code] = descriptor;
+        localStorage.setItem(LOCAL_STORAGE_REGISTRY_KEY, JSON.stringify(map));
+      } catch (e) {}
+    }
+
     if (this.bus) {
       if (isFull) {
         this.bus.stopAdvertising(code);
@@ -362,31 +371,41 @@ export class KvRoomRegistry {
   }
 
   /**
-   * Debounced state update (max 1 write per 2000ms) to conserve cloud quota.
+   * Debounced state update (max 1 write per 400ms) to conserve cloud quota.
    * @param {string} roomCode
    * @param {Object} patchData
+   * @param {boolean} [immediate=false]
    */
-  updateRoomDebounced(roomCode, patchData) {
+  updateRoomDebounced(roomCode, patchData, immediate = false) {
     const code = roomCode.toUpperCase();
-    const existingPending = this._pendingWrites.get(code) || {};
-    this._pendingWrites.set(code, { ...existingPending, ...patchData });
+    const existing = this._pendingWrites.get(code) || {};
+    this._pendingWrites.set(code, { ...existing, ...patchData });
 
-    if (this._debounceTimers.has(code)) {
-      return; // Debounce window active
+    if (immediate) {
+      if (this._debounceTimers.has(code)) {
+        clearTimeout(this._debounceTimers.get(code));
+        this._debounceTimers.delete(code);
+      }
+      const data = this._pendingWrites.get(code);
+      this._pendingWrites.delete(code);
+      if (data) {
+        this._flushRoomUpdate(code, data);
+      }
+      return;
     }
 
-    const timer = setTimeout(async () => {
+    if (this._debounceTimers.has(code)) {
+      return;
+    }
+
+    const timer = setTimeout(() => {
       this._debounceTimers.delete(code);
-      const dataToFlush = this._pendingWrites.get(code);
+      const data = this._pendingWrites.get(code);
       this._pendingWrites.delete(code);
-      if (dataToFlush) {
-        try {
-          await this._flushRoomUpdate(code, dataToFlush);
-        } catch (err) {
-          console.warn('[KV Registry] Flush error:', err);
-        }
+      if (data) {
+        this._flushRoomUpdate(code, data);
       }
-    }, KV_WRITE_DEBOUNCE_MS);
+    }, 400);
 
     if (timer && typeof timer.unref === 'function') {
       timer.unref();
@@ -419,6 +438,19 @@ export class KvRoomRegistry {
     }
 
     this.localFallbackRooms.set(key, descriptor);
+
+    if (typeof localStorage !== 'undefined') {
+      try {
+        const raw = localStorage.getItem(LOCAL_STORAGE_REGISTRY_KEY);
+        const map = raw ? JSON.parse(raw) : {};
+        if (descriptor.isFull || descriptor.status === 'ACTIVE') {
+          delete map[roomCode];
+        } else {
+          map[roomCode] = descriptor;
+        }
+        localStorage.setItem(LOCAL_STORAGE_REGISTRY_KEY, JSON.stringify(map));
+      } catch (e) {}
+    }
 
     if (this.bus) {
       if (descriptor.isFull || descriptor.status === 'ACTIVE') {

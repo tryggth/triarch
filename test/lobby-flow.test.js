@@ -147,4 +147,61 @@ describe('Die-Driven Matchmaking & Room Registry', () => {
     assert.ok(waitingCodes.includes('TR-OPEN'));
     assert.ok(!waitingCodes.includes('TR-BUSY'), 'Full/ACTIVE rooms must not appear in waiting list');
   });
+
+  test('Verification Workflow: Tab 1 creates G1, Tab 2 joins G2 (room stays WAITING 2/3), Tab 3 discovers & joins G3 (room launches 3/3)', async () => {
+    const mockKv = createMockKvStore();
+
+    // 1. Tab 1 (Host): Creates room with G1
+    const hostRegistry = new KvRoomRegistry({ kvStore: mockKv });
+    const room = await hostRegistry.createRoom('TR-VERIFY', 'peer_tab1', {
+      gameName: 'Grand Championship',
+      hostDie: 'G1',
+      hostName: 'Player 1'
+    });
+
+    assert.equal(room.roomCode, 'TR-VERIFY');
+    assert.equal(room.playerCount, 1);
+    assert.equal(room.status, 'WAITING');
+    assert.equal(room.isFull, false);
+    assert.equal(room.seats.G1.claimed, true);
+    assert.equal(room.seats.G2.claimed, false);
+    assert.equal(room.seats.G3.claimed, false);
+
+    // 2. Tab 2 (Joiner): Discovers room and claims G2
+    const tab2Registry = new KvRoomRegistry({ kvStore: mockKv });
+    const tab2Discovered = await tab2Registry.listActiveRooms({ onlyWaiting: true });
+    assert.equal(tab2Discovered.length, 1);
+    assert.equal(tab2Discovered[0].roomCode, 'TR-VERIFY');
+
+    const roomAfterTab2 = await tab2Registry.claimSeat('TR-VERIFY', 'G2', 'peer_tab2', 'Player 2');
+    assert.equal(roomAfterTab2.playerCount, 2);
+    assert.equal(roomAfterTab2.status, 'WAITING', 'Must remain WAITING after 2nd player joins');
+    assert.equal(roomAfterTab2.isFull, false, 'Must NOT be full after 2nd player joins');
+    assert.equal(roomAfterTab2.seats.G1.claimed, true);
+    assert.equal(roomAfterTab2.seats.G2.claimed, true);
+    assert.equal(roomAfterTab2.seats.G3.claimed, false);
+
+    // 3. Tab 3 (3rd Player): Discovers room with 2 players and claims G3
+    const tab3Registry = new KvRoomRegistry({ kvStore: mockKv });
+    const tab3Discovered = await tab3Registry.listActiveRooms({ onlyWaiting: true });
+    assert.equal(tab3Discovered.length, 1, 'Tab 3 must discover room with 2 connected players');
+    assert.equal(tab3Discovered[0].roomCode, 'TR-VERIFY');
+    assert.equal(tab3Discovered[0].playerCount, 2);
+    assert.equal(tab3Discovered[0].seats.G1.claimed, true);
+    assert.equal(tab3Discovered[0].seats.G2.claimed, true);
+    assert.equal(tab3Discovered[0].seats.G3.claimed, false);
+
+    const roomAfterTab3 = await tab3Registry.claimSeat('TR-VERIFY', 'G3', 'peer_tab3', 'Player 3');
+    assert.equal(roomAfterTab3.playerCount, 3);
+    assert.equal(roomAfterTab3.status, 'ACTIVE', 'Transitions to ACTIVE only when 3rd player joins');
+    assert.equal(roomAfterTab3.isFull, true);
+    assert.equal(roomAfterTab3.seats.G1.claimed, true);
+    assert.equal(roomAfterTab3.seats.G2.claimed, true);
+    assert.equal(roomAfterTab3.seats.G3.claimed, true);
+
+    // 4. Tab 4: Room is now active/full, no longer in waiting list
+    const tab4Registry = new KvRoomRegistry({ kvStore: mockKv });
+    const tab4Discovered = await tab4Registry.listActiveRooms({ onlyWaiting: true });
+    assert.equal(tab4Discovered.length, 0, 'Full/active rooms removed from available waiting list');
+  });
 });

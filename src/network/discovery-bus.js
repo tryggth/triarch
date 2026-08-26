@@ -172,13 +172,13 @@ export class LobbyDiscoveryBus {
     const code = roomCode.toUpperCase();
     if (this._activeDescriptors.has(code)) {
       this._activeDescriptors.set(code, updatedDescriptor);
-      this._saveToLocalStorage(updatedDescriptor);
-      this._post({
-        type: DISCOVERY_ACTIONS.ROOM_ADVERTISE,
-        descriptor: updatedDescriptor,
-        t: Date.now()
-      });
     }
+    this._saveToLocalStorage(updatedDescriptor);
+    this._post({
+      type: DISCOVERY_ACTIONS.ROOM_ADVERTISE,
+      descriptor: updatedDescriptor,
+      t: Date.now()
+    });
   }
 
   /**
