@@ -54,6 +54,56 @@ export class NetworkGameStateAdapter {
       toast.show('Multiplayer Match Launched!', 'success', 2500);
       sfx.playDominanceChime();
     });
+
+    // Listen to peer departures for instant bot takeover
+    this.mesh.onPeerLeave((peerId) => {
+      this.handlePeerDisconnect(peerId);
+    });
+  }
+
+  /**
+   * Graceful failover: converts disconnected player seat to an autonomous AI bot.
+   * @param {string} peerId
+   */
+  handlePeerDisconnect(peerId) {
+    if (!peerId) return;
+
+    for (const [seatKey, seatData] of Object.entries(this.mesh.seats)) {
+      if (seatData.peerId === peerId) {
+        console.warn(`[NetState] Peer disconnected (${peerId}) from seat: ${seatKey}. Executing AI failover.`);
+        
+        // Convert seat to AI bot
+        seatData.peerId = null;
+        seatData.isAI = true;
+        seatData.aiType = seatData.aiType || 'CYCLIC_EXPLOITER';
+        seatData.name = `${this.game.players[seatKey]?.name || seatKey} (Bot Sub)`;
+
+        if (this.game.players[seatKey]) {
+          this.game.players[seatKey].isAI = true;
+          this.game.players[seatKey].aiType = seatData.aiType;
+          this.game.players[seatKey].name = seatData.name;
+        }
+
+        // If player had an unrevealed commitment, auto-reveal default faction die
+        if (this.peerCommitments.has(seatKey) && !this.peerReveals.has(seatKey)) {
+          const defaultDie = this.game.players[seatKey]?.currentDie || TRIARCH_STANDARD[0];
+          this.peerReveals.set(seatKey, {
+            dieId: defaultDie.id,
+            salt: 'auto_sub_salt',
+            verified: true
+          });
+          this.game.setPlayerDie(seatKey, defaultDie);
+        }
+
+        // If host, synchronize updated seat state
+        if (this.mesh.isHost) {
+          this.mesh.broadcastSeatState();
+        }
+
+        toast.show(`⚠️ Player disconnected. Seat ${seatKey.toUpperCase()} converted to AI Bot.`, 'warning', 3500);
+        this.game.notify();
+      }
+    }
   }
 
   /**

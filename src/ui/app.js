@@ -715,7 +715,7 @@ class TriarchApp {
     // Initialize NATS Telemetry Panel
     const telemetryMount = document.getElementById('nats-telemetry-mount');
     if (telemetryMount) {
-      this.natsPanel = new NatsTelemetryPanel(telemetryMount, this.mesh);
+      this.natsPanel = new NatsTelemetryPanel(telemetryMount, this.mesh, this.game);
     }
   }
 

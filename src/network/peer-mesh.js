@@ -361,6 +361,14 @@ export class PeerMeshManager {
     this.listeners.gameStart.add(cb);
   }
 
+  onPeerJoin(cb) {
+    this.listeners.peerJoin.add(cb);
+  }
+
+  onPeerLeave(cb) {
+    this.listeners.peerLeave.add(cb);
+  }
+
   onLatencyUpdate(cb) {
     this.listeners.latency.add(cb);
   }

@@ -7,7 +7,9 @@
 class SoundEngine {
   constructor() {
     this.ctx = null;
-    this.muted = localStorage.getItem('triarch_sfx_muted') === 'true';
+    this.muted = typeof localStorage !== 'undefined'
+      ? localStorage.getItem('triarch_sfx_muted') === 'true'
+      : false;
   }
 
   /**
@@ -15,7 +17,7 @@ class SoundEngine {
    */
   _ensureContext() {
     if (this.muted) return null;
-    if (!this.ctx) {
+    if (!this.ctx && typeof window !== 'undefined') {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       if (AudioCtx) {
         this.ctx = new AudioCtx();
@@ -29,7 +31,9 @@ class SoundEngine {
 
   setMuted(muted) {
     this.muted = muted;
-    localStorage.setItem('triarch_sfx_muted', String(muted));
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('triarch_sfx_muted', String(muted));
+    }
   }
 
   toggleMute() {

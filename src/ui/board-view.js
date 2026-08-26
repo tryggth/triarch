@@ -5,6 +5,7 @@
  */
 
 import { sfx } from '../audio/sfx.js';
+import { haptics } from '../audio/haptics.js';
 
 export class BoardStageManager {
   /**
@@ -82,6 +83,7 @@ export class BoardStageManager {
   async rollCombatShowdown(rolls, onComplete) {
     this.setWatermarkActive(true);
     sfx.playDiceRoll();
+    haptics.roll();
 
     const pRuby = this.diceCubes.ruby.rollToFace(rolls.ruby.raw, rolls.ruby.modified);
     const pCyan = this.diceCubes.cyan.rollToFace(rolls.cyan.raw, rolls.cyan.modified);
@@ -89,6 +91,7 @@ export class BoardStageManager {
 
     await Promise.all([pRuby, pCyan, pAmber]);
     this.setWatermarkActive(false);
+    haptics.impact();
 
     if (onComplete) onComplete();
   }
@@ -107,6 +110,10 @@ export class BoardStageManager {
   showResult(reason, winnerId) {
     const banner = this.container.querySelector('#stage-clash-banner');
     if (!banner) return;
+
+    if (winnerId) {
+      haptics.victory();
+    }
 
     banner.classList.remove('hidden');
     let bg = 'bg-slate-900/90 border-slate-700 text-slate-200';

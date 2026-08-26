@@ -320,6 +320,60 @@ export class GameStateManager {
   }
 
   /**
+   * Generates a complete structured match telemetry payload for analysis/export.
+   * @param {Object} [meta={}] - Additional match metadata (e.g. roomCode, transportType)
+   * @returns {Object}
+   */
+  exportTelemetry(meta = {}) {
+    const checksum = Object.entries(this.players).reduce((acc, [id, p]) => {
+      return acc + `:${id}:${p.score}:${p.shards}`;
+    }, `R${this.roundNumber}:${this.phase}`);
+
+    return {
+      version: '1.0.0',
+      game: 'TRIARCH: Cyclic Edge',
+      exportedAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      matchMetadata: {
+        roomCode: meta.roomCode || 'LOCAL',
+        transportType: meta.transportType || 'local',
+        mode: this.mode.id,
+        targetScore: this.mode.targetScore,
+        maxRounds: this.mode.maxRounds,
+        totalRoundsPlayed: this.roundHistory.length,
+        finalWinner: this.winner ? this.winner.name : (this.phase === GAME_PHASES.GAME_OVER ? 'Tied' : null),
+        status: this.phase
+      },
+      players: Object.fromEntries(
+        Object.entries(this.players).map(([id, p]) => [
+          id,
+          {
+            id: p.id,
+            name: p.name,
+            faction: p.faction.name,
+            isAI: p.isAI,
+            aiType: p.aiType,
+            finalScore: p.score,
+            finalShards: p.shards,
+            assignedDie: p.currentDie.name,
+            faces: p.currentDie.faces
+          }
+        ])
+      ),
+      roundHistory: this.roundHistory.map((rec) => ({
+        roundNumber: rec.roundNumber,
+        winnerId: rec.winnerId,
+        winnerName: rec.winnerName,
+        reason: rec.reason,
+        rolls: rec.rolls,
+        scoresAfter: rec.scoresAfterRound,
+        shardsAfter: rec.shardsAfterRound
+      })),
+      stateChecksum: checksum
+    };
+  }
+
+  /**
    * Serializes current state to JSON string.
    */
   serialize() {

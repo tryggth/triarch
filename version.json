@@ -1,8 +1,12 @@
 {
   "name": "TRIARCH: Cyclic Edge",
-  "version": "1.7.0",
-  "buildTime": "2026-08-26T11:00:00Z",
+  "version": "1.8.0",
+  "buildTime": "2026-08-26T11:30:00Z",
   "features": [
+    "Graceful Peer Disconnect Handling & Autonomous Bot Failover",
+    "Concealed Stance Timeout Auto-Resolve Safety",
+    "Match Telemetry Structured JSON Export & Analytical Ledger",
+    "Mobile Tactile Haptics Engine (Tumbling Dice, Clash Impacts & Victory Pulses)",
     "JetStream KV Room Registry & Public Discovery (Bucket: TRIARCH_ROOMS)",
     "Free-Tier Quota Guard (1h TTL, History 1, Max 8KB, 2s Debounce)",
     "Global Active Public Room Browser in Lobby Modal with 1-Click Join",

@@ -9,6 +9,7 @@ class ToastManager {
   }
 
   _getContainer() {
+    if (typeof document === 'undefined') return null;
     if (!this.container) {
       this.container = document.getElementById('toast-container');
       if (!this.container) {
@@ -30,6 +31,7 @@ class ToastManager {
    */
   show(message, type = 'info', duration = 3500, action = null) {
     const container = this._getContainer();
+    if (!container || typeof document === 'undefined') return;
     const toast = document.createElement('div');
 
     const styles = {

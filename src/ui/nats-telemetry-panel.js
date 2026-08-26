@@ -22,12 +22,14 @@ export class NatsTelemetryPanel {
   /**
    * @param {HTMLElement|string} mountElement
    * @param {import('../network/peer-mesh.js').PeerMeshManager} [peerMesh]
+   * @param {import('../game/state.js').GameStateManager} [gameState]
    */
-  constructor(mountElement, peerMesh = null) {
+  constructor(mountElement, peerMesh = null, gameState = null) {
     this.container = typeof mountElement === 'string'
       ? document.querySelector(mountElement)
       : mountElement;
     this.mesh = peerMesh;
+    this.game = gameState || (typeof window !== 'undefined' && window.triarchApp ? window.triarchApp.game : null);
 
     this.config = loadNatsConfig();
     this.trafficLogs = [];
@@ -241,7 +243,24 @@ export class NatsTelemetryPanel {
           </div>
         </div>
 
-        <!-- Section 5: Live Subject Traffic Monitor -->
+        <!-- Section 5: Match Telemetry & Analytical Data Export -->
+        <div class="space-y-3 p-4 rounded-2xl bg-slate-900/50 border border-slate-800">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <span class="text-xs font-bold uppercase tracking-wider text-slate-300 font-mono">
+                Match Telemetry Export
+              </span>
+              <p class="text-[11px] text-slate-400">
+                Download structured JSON report with exact rolls, clash payoffs, and audit checksums.
+              </p>
+            </div>
+            <button id="btn-export-telemetry" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-mono font-bold transition-all shadow-[0_0_12px_#6366f140] flex items-center gap-1.5 whitespace-nowrap">
+              <span>📥</span> Export Match Telemetry (JSON)
+            </button>
+          </div>
+        </div>
+
+        <!-- Section 6: Live Subject Traffic Monitor -->
         <div class="space-y-3 p-4 rounded-2xl bg-slate-900/50 border border-slate-800">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
@@ -435,7 +454,40 @@ export class NatsTelemetryPanel {
       btnProbe.addEventListener('click', () => this.runProbe());
     }
 
-    // 6. Clear Traffic
+    // 6. Match Telemetry Export
+    const btnExport = this.container.querySelector('#btn-export-telemetry');
+    if (btnExport) {
+      btnExport.addEventListener('click', () => {
+        const game = this.game || (typeof window !== 'undefined' && window.triarchApp ? window.triarchApp.game : null);
+        if (!game || typeof game.exportTelemetry !== 'function') {
+          toast.show('No active match telemetry available to export.', 'warning', 2500);
+          return;
+        }
+
+        sfx.playClick();
+        const telemetry = game.exportTelemetry({
+          roomCode: this.mesh ? this.mesh.roomCode : 'LOCAL',
+          transportType: this.config.activeTransport
+        });
+
+        const jsonStr = JSON.stringify(telemetry, null, 2);
+        const blob = new Blob([jsonStr], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `triarch_match_telemetry_${Date.now()}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        sfx.playDominanceChime();
+        toast.show('📥 Match Telemetry JSON Exported!', 'success', 2500);
+      });
+    }
+
+    // 7. Clear Traffic
     const btnClearTraffic = this.container.querySelector('#btn-clear-traffic');
     if (btnClearTraffic) {
       btnClearTraffic.addEventListener('click', () => {

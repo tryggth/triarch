@@ -1,7 +1,7 @@
 ================================================================================
  TRIARCH: CYCLIC EDGE - COMBINED SOURCE CODE BUNDLE
- Generated on: 2026-08-26T17:35:08.499Z
- Total Source Files: 53
+ Generated on: 2026-08-26T17:38:06.459Z
+ Total Source Files: 55
 ================================================================================
 
 
@@ -766,6 +766,85 @@ export class QRScannerHelper {
 
 
 /* =============================================================================
+ * FILE: src/audio/haptics.js
+ * ============================================================================= */
+
+/**
+ * TRIARCH: Cyclic Edge - Mobile Tactile Haptics Engine
+ * Provides rich vibration patterns for dice tumbling, impact clashes, and victories.
+ * Gracefully no-ops on desktop or unsupported devices.
+ */
+
+class HapticsEngine {
+  constructor() {
+    this.hasVibration = typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function';
+    this.enabled = true;
+
+    if (typeof localStorage !== 'undefined') {
+      const stored = localStorage.getItem('triarch_haptics_enabled');
+      if (stored !== null) {
+        this.enabled = stored === 'true';
+      }
+    }
+  }
+
+  vibrate(pattern) {
+    if (!this.enabled || !this.hasVibration) return;
+    try {
+      navigator.vibrate(pattern);
+    } catch (e) {}
+  }
+
+  /**
+   * Subtle tick for button taps, die selection, and shard purchases.
+   */
+  light() {
+    this.vibrate(10);
+  }
+
+  /**
+   * Multi-pulse vibration for 3D tumbling dice animations.
+   */
+  roll() {
+    this.vibrate([15, 30, 15]);
+  }
+
+  /**
+   * Heavy percussive impact when combat dice resolve against each other.
+   */
+  impact() {
+    this.vibrate([40, 20, 60]);
+  }
+
+  /**
+   * Celebratory pattern on round victory or tournament game win.
+   */
+  victory() {
+    this.vibrate([30, 50, 30, 50, 100]);
+  }
+
+  /**
+   * Alert buzz on invalid action or error.
+   */
+  error() {
+    this.vibrate([60, 40, 60]);
+  }
+
+  toggle() {
+    this.enabled = !this.enabled;
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('triarch_haptics_enabled', this.enabled ? 'true' : 'false');
+    }
+    if (this.enabled) this.light();
+    return this.enabled;
+  }
+}
+
+export const haptics = new HapticsEngine();
+
+
+
+/* =============================================================================
  * FILE: src/audio/sfx.js
  * ============================================================================= */
 
@@ -778,7 +857,9 @@ export class QRScannerHelper {
 class SoundEngine {
   constructor() {
     this.ctx = null;
-    this.muted = localStorage.getItem('triarch_sfx_muted') === 'true';
+    this.muted = typeof localStorage !== 'undefined'
+      ? localStorage.getItem('triarch_sfx_muted') === 'true'
+      : false;
   }
 
   /**
@@ -786,7 +867,7 @@ class SoundEngine {
    */
   _ensureContext() {
     if (this.muted) return null;
-    if (!this.ctx) {
+    if (!this.ctx && typeof window !== 'undefined') {
       const AudioCtx = window.AudioContext || window.webkitAudioContext;
       if (AudioCtx) {
         this.ctx = new AudioCtx();
@@ -800,7 +881,9 @@ class SoundEngine {
 
   setMuted(muted) {
     this.muted = muted;
-    localStorage.setItem('triarch_sfx_muted', String(muted));
+    if (typeof localStorage !== 'undefined') {
+      localStorage.setItem('triarch_sfx_muted', String(muted));
+    }
   }
 
   toggleMute() {
@@ -1312,6 +1395,56 @@ export class NetworkGameStateAdapter {
       toast.show('Multiplayer Match Launched!', 'success', 2500);
       sfx.playDominanceChime();
     });
+
+    // Listen to peer departures for instant bot takeover
+    this.mesh.onPeerLeave((peerId) => {
+      this.handlePeerDisconnect(peerId);
+    });
+  }
+
+  /**
+   * Graceful failover: converts disconnected player seat to an autonomous AI bot.
+   * @param {string} peerId
+   */
+  handlePeerDisconnect(peerId) {
+    if (!peerId) return;
+
+    for (const [seatKey, seatData] of Object.entries(this.mesh.seats)) {
+      if (seatData.peerId === peerId) {
+        console.warn(`[NetState] Peer disconnected (${peerId}) from seat: ${seatKey}. Executing AI failover.`);
+        
+        // Convert seat to AI bot
+        seatData.peerId = null;
+        seatData.isAI = true;
+        seatData.aiType = seatData.aiType || 'CYCLIC_EXPLOITER';
+        seatData.name = `${this.game.players[seatKey]?.name || seatKey} (Bot Sub)`;
+
+        if (this.game.players[seatKey]) {
+          this.game.players[seatKey].isAI = true;
+          this.game.players[seatKey].aiType = seatData.aiType;
+          this.game.players[seatKey].name = seatData.name;
+        }
+
+        // If player had an unrevealed commitment, auto-reveal default faction die
+        if (this.peerCommitments.has(seatKey) && !this.peerReveals.has(seatKey)) {
+          const defaultDie = this.game.players[seatKey]?.currentDie || TRIARCH_STANDARD[0];
+          this.peerReveals.set(seatKey, {
+            dieId: defaultDie.id,
+            salt: 'auto_sub_salt',
+            verified: true
+          });
+          this.game.setPlayerDie(seatKey, defaultDie);
+        }
+
+        // If host, synchronize updated seat state
+        if (this.mesh.isHost) {
+          this.mesh.broadcastSeatState();
+        }
+
+        toast.show(`⚠️ Player disconnected. Seat ${seatKey.toUpperCase()} converted to AI Bot.`, 'warning', 3500);
+        this.game.notify();
+      }
+    }
   }
 
   /**
@@ -1963,6 +2096,60 @@ export class GameStateManager {
     this.phase = GAME_PHASES.DEPLOY;
     this.lastClashResult = null;
     this.notify();
+  }
+
+  /**
+   * Generates a complete structured match telemetry payload for analysis/export.
+   * @param {Object} [meta={}] - Additional match metadata (e.g. roomCode, transportType)
+   * @returns {Object}
+   */
+  exportTelemetry(meta = {}) {
+    const checksum = Object.entries(this.players).reduce((acc, [id, p]) => {
+      return acc + `:${id}:${p.score}:${p.shards}`;
+    }, `R${this.roundNumber}:${this.phase}`);
+
+    return {
+      version: '1.0.0',
+      game: 'TRIARCH: Cyclic Edge',
+      exportedAt: new Date().toISOString(),
+      timestamp: Date.now(),
+      matchMetadata: {
+        roomCode: meta.roomCode || 'LOCAL',
+        transportType: meta.transportType || 'local',
+        mode: this.mode.id,
+        targetScore: this.mode.targetScore,
+        maxRounds: this.mode.maxRounds,
+        totalRoundsPlayed: this.roundHistory.length,
+        finalWinner: this.winner ? this.winner.name : (this.phase === GAME_PHASES.GAME_OVER ? 'Tied' : null),
+        status: this.phase
+      },
+      players: Object.fromEntries(
+        Object.entries(this.players).map(([id, p]) => [
+          id,
+          {
+            id: p.id,
+            name: p.name,
+            faction: p.faction.name,
+            isAI: p.isAI,
+            aiType: p.aiType,
+            finalScore: p.score,
+            finalShards: p.shards,
+            assignedDie: p.currentDie.name,
+            faces: p.currentDie.faces
+          }
+        ])
+      ),
+      roundHistory: this.roundHistory.map((rec) => ({
+        roundNumber: rec.roundNumber,
+        winnerId: rec.winnerId,
+        winnerName: rec.winnerName,
+        reason: rec.reason,
+        rolls: rec.rolls,
+        scoresAfter: rec.scoresAfterRound,
+        shardsAfter: rec.shardsAfterRound
+      })),
+      stateChecksum: checksum
+    };
   }
 
   /**
@@ -3856,6 +4043,14 @@ export class PeerMeshManager {
     this.listeners.gameStart.add(cb);
   }
 
+  onPeerJoin(cb) {
+    this.listeners.peerJoin.add(cb);
+  }
+
+  onPeerLeave(cb) {
+    this.listeners.peerLeave.add(cb);
+  }
+
   onLatencyUpdate(cb) {
     this.listeners.latency.add(cb);
   }
@@ -5539,7 +5734,7 @@ class TriarchApp {
     // Initialize NATS Telemetry Panel
     const telemetryMount = document.getElementById('nats-telemetry-mount');
     if (telemetryMount) {
-      this.natsPanel = new NatsTelemetryPanel(telemetryMount, this.mesh);
+      this.natsPanel = new NatsTelemetryPanel(telemetryMount, this.mesh, this.game);
     }
   }
 
@@ -5765,6 +5960,7 @@ export class AuditLedgerView {
  */
 
 import { sfx } from '../audio/sfx.js';
+import { haptics } from '../audio/haptics.js';
 
 export class BoardStageManager {
   /**
@@ -5842,6 +6038,7 @@ export class BoardStageManager {
   async rollCombatShowdown(rolls, onComplete) {
     this.setWatermarkActive(true);
     sfx.playDiceRoll();
+    haptics.roll();
 
     const pRuby = this.diceCubes.ruby.rollToFace(rolls.ruby.raw, rolls.ruby.modified);
     const pCyan = this.diceCubes.cyan.rollToFace(rolls.cyan.raw, rolls.cyan.modified);
@@ -5849,6 +6046,7 @@ export class BoardStageManager {
 
     await Promise.all([pRuby, pCyan, pAmber]);
     this.setWatermarkActive(false);
+    haptics.impact();
 
     if (onComplete) onComplete();
   }
@@ -5867,6 +6065,10 @@ export class BoardStageManager {
   showResult(reason, winnerId) {
     const banner = this.container.querySelector('#stage-clash-banner');
     if (!banner) return;
+
+    if (winnerId) {
+      haptics.victory();
+    }
 
     banner.classList.remove('hidden');
     let bg = 'bg-slate-900/90 border-slate-700 text-slate-200';
@@ -6730,12 +6932,14 @@ export class NatsTelemetryPanel {
   /**
    * @param {HTMLElement|string} mountElement
    * @param {import('../network/peer-mesh.js').PeerMeshManager} [peerMesh]
+   * @param {import('../game/state.js').GameStateManager} [gameState]
    */
-  constructor(mountElement, peerMesh = null) {
+  constructor(mountElement, peerMesh = null, gameState = null) {
     this.container = typeof mountElement === 'string'
       ? document.querySelector(mountElement)
       : mountElement;
     this.mesh = peerMesh;
+    this.game = gameState || (typeof window !== 'undefined' && window.triarchApp ? window.triarchApp.game : null);
 
     this.config = loadNatsConfig();
     this.trafficLogs = [];
@@ -6949,7 +7153,24 @@ export class NatsTelemetryPanel {
           </div>
         </div>
 
-        <!-- Section 5: Live Subject Traffic Monitor -->
+        <!-- Section 5: Match Telemetry & Analytical Data Export -->
+        <div class="space-y-3 p-4 rounded-2xl bg-slate-900/50 border border-slate-800">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <div>
+              <span class="text-xs font-bold uppercase tracking-wider text-slate-300 font-mono">
+                Match Telemetry Export
+              </span>
+              <p class="text-[11px] text-slate-400">
+                Download structured JSON report with exact rolls, clash payoffs, and audit checksums.
+              </p>
+            </div>
+            <button id="btn-export-telemetry" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-mono font-bold transition-all shadow-[0_0_12px_#6366f140] flex items-center gap-1.5 whitespace-nowrap">
+              <span>📥</span> Export Match Telemetry (JSON)
+            </button>
+          </div>
+        </div>
+
+        <!-- Section 6: Live Subject Traffic Monitor -->
         <div class="space-y-3 p-4 rounded-2xl bg-slate-900/50 border border-slate-800">
           <div class="flex items-center justify-between">
             <div class="flex items-center gap-2">
@@ -7143,7 +7364,40 @@ export class NatsTelemetryPanel {
       btnProbe.addEventListener('click', () => this.runProbe());
     }
 
-    // 6. Clear Traffic
+    // 6. Match Telemetry Export
+    const btnExport = this.container.querySelector('#btn-export-telemetry');
+    if (btnExport) {
+      btnExport.addEventListener('click', () => {
+        const game = this.game || (typeof window !== 'undefined' && window.triarchApp ? window.triarchApp.game : null);
+        if (!game || typeof game.exportTelemetry !== 'function') {
+          toast.show('No active match telemetry available to export.', 'warning', 2500);
+          return;
+        }
+
+        sfx.playClick();
+        const telemetry = game.exportTelemetry({
+          roomCode: this.mesh ? this.mesh.roomCode : 'LOCAL',
+          transportType: this.config.activeTransport
+        });
+
+        const jsonStr = JSON.stringify(telemetry, null, 2);
+        const blob = new Blob([jsonStr], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `triarch_match_telemetry_${Date.now()}.json`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        URL.revokeObjectURL(url);
+
+        sfx.playDominanceChime();
+        toast.show('📥 Match Telemetry JSON Exported!', 'success', 2500);
+      });
+    }
+
+    // 7. Clear Traffic
     const btnClearTraffic = this.container.querySelector('#btn-clear-traffic');
     if (btnClearTraffic) {
       btnClearTraffic.addEventListener('click', () => {
@@ -7630,6 +7884,7 @@ class ToastManager {
   }
 
   _getContainer() {
+    if (typeof document === 'undefined') return null;
     if (!this.container) {
       this.container = document.getElementById('toast-container');
       if (!this.container) {
@@ -7651,6 +7906,7 @@ class ToastManager {
    */
   show(message, type = 'info', duration = 3500, action = null) {
     const container = this._getContainer();
+    if (!container || typeof document === 'undefined') return;
     const toast = document.createElement('div');
 
     const styles = {
@@ -8160,7 +8416,7 @@ export function createDiceVisual(container, die) {
  * Robust offline caching, WebRTC P2P mesh support, NATS WebSocket adapter, and instant upgrade activation.
  */
 
-const CACHE_NAME = 'triarch-cache-v1.7.0';
+const CACHE_NAME = 'triarch-cache-v1.8.0';
 
 const PRECACHE_ASSETS = [
   './',
@@ -8196,6 +8452,7 @@ const PRECACHE_ASSETS = [
   './src/game/network-state.js',
   './src/game/index.js',
   './src/audio/sfx.js',
+  './src/audio/haptics.js',
   './src/ui/board-view.js',
   './src/ui/odds-inspector.js',
   './src/ui/audit-ledger.js',
@@ -8526,6 +8783,129 @@ describe('Dice Presets Registry', () => {
       assert.ok(preset.name.length > 0);
       assert.ok(preset.dice.length >= 3);
     }
+  });
+});
+
+
+
+/* =============================================================================
+ * FILE: test/failover.test.js
+ * ============================================================================= */
+
+/**
+ * Automated Verification Suite - Peer Failover, Telemetry Export & Haptics (100% In-Memory)
+ */
+
+import { test, describe } from 'node:test';
+import assert from 'node:assert/strict';
+import { GameStateManager } from '../src/game/state.js';
+import { NetworkGameStateAdapter } from '../src/game/network-state.js';
+import { PeerMeshManager } from '../src/network/peer-mesh.js';
+import { haptics } from '../src/audio/haptics.js';
+import { TRIARCH_STANDARD } from '../src/math/dice.js';
+
+describe('Peer Disconnect Fallback & Autonomous Bot Takeover', () => {
+  test('Seamlessly converts dropped player seat to AI Bot without resetting scores', () => {
+    const game = new GameStateManager();
+    const mesh = new PeerMeshManager();
+    const net = new NetworkGameStateAdapter(game, mesh);
+
+    // Setup 3-player match with a remote peer in Cyan seat
+    mesh.isHost = true;
+    mesh.localSeat = 'ruby';
+    mesh.seats.cyan = {
+      peerId: 'peer_remote_cyan',
+      name: 'CyanPlayer',
+      isAI: false,
+      aiType: null,
+      ready: true
+    };
+    game.players.cyan.isAI = false;
+    game.players.cyan.score = 3;
+    game.players.cyan.shards = 4;
+
+    // Simulate peer disconnect
+    net.handlePeerDisconnect('peer_remote_cyan');
+
+    // Asserts
+    assert.equal(mesh.seats.cyan.isAI, true);
+    assert.equal(mesh.seats.cyan.peerId, null);
+    assert.ok(mesh.seats.cyan.aiType);
+    assert.equal(game.players.cyan.isAI, true);
+    assert.equal(game.players.cyan.score, 3, 'Player score must be preserved during failover');
+    assert.equal(game.players.cyan.shards, 4, 'Player shards must be preserved during failover');
+  });
+
+  test('Auto-reveals unrevealed commitments on disconnect to prevent round deadlock', () => {
+    const game = new GameStateManager();
+    const mesh = new PeerMeshManager();
+    const net = new NetworkGameStateAdapter(game, mesh);
+
+    mesh.isHost = true;
+    mesh.seats.amber = {
+      peerId: 'peer_amber_ghost',
+      name: 'AmberGhost',
+      isAI: false,
+      ready: true
+    };
+
+    // Amber player created an unrevealed SHA-256 stance commitment
+    net.peerCommitments.set('amber', 'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855');
+    assert.equal(net.peerReveals.has('amber'), false);
+
+    // Amber peer disconnects before submitting salt/reveal
+    net.handlePeerDisconnect('peer_amber_ghost');
+
+    // Failover must resolve the reveal automatically using faction die
+    assert.equal(net.peerReveals.has('amber'), true);
+    const reveal = net.peerReveals.get('amber');
+    assert.equal(reveal.verified, true);
+    assert.ok(reveal.dieId);
+    assert.equal(game.players.amber.isAI, true);
+  });
+});
+
+describe('Match Telemetry Export Integrity', () => {
+  test('Generates complete, structured telemetry report with checksums', () => {
+    const game = new GameStateManager();
+
+    // Play 2 rounds
+    game.executeClash();
+    game.nextRound();
+    game.executeClash();
+
+    const telemetry = game.exportTelemetry({
+      roomCode: 'TR-7X',
+      transportType: 'nats'
+    });
+
+    assert.equal(telemetry.game, 'TRIARCH: Cyclic Edge');
+    assert.equal(telemetry.matchMetadata.roomCode, 'TR-7X');
+    assert.equal(telemetry.matchMetadata.transportType, 'nats');
+    assert.equal(telemetry.matchMetadata.totalRoundsPlayed, 2);
+    assert.equal(telemetry.roundHistory.length, 2);
+    assert.ok(telemetry.stateChecksum.startsWith('R2:'));
+    assert.ok(telemetry.players.ruby.finalScore >= 0);
+    assert.ok(telemetry.players.cyan.finalScore >= 0);
+    assert.ok(telemetry.players.amber.finalScore >= 0);
+  });
+});
+
+describe('Mobile Tactile Haptics Engine', () => {
+  test('Executes vibration patterns safely with graceful fallback', () => {
+    // Should safely no-op in test/Node environment without throwing
+    haptics.light();
+    haptics.roll();
+    haptics.impact();
+    haptics.victory();
+    haptics.error();
+
+    const initial = haptics.enabled;
+    const toggled = haptics.toggle();
+    assert.equal(toggled, !initial);
+
+    // Restore
+    haptics.toggle();
   });
 });
 
@@ -9698,9 +10078,13 @@ describe('Graph-Theoretic Cycle Detection', () => {
 
 {
   "name": "TRIARCH: Cyclic Edge",
-  "version": "1.7.0",
-  "buildTime": "2026-08-26T11:00:00Z",
+  "version": "1.8.0",
+  "buildTime": "2026-08-26T11:30:00Z",
   "features": [
+    "Graceful Peer Disconnect Handling & Autonomous Bot Failover",
+    "Concealed Stance Timeout Auto-Resolve Safety",
+    "Match Telemetry Structured JSON Export & Analytical Ledger",
+    "Mobile Tactile Haptics Engine (Tumbling Dice, Clash Impacts & Victory Pulses)",
     "JetStream KV Room Registry & Public Discovery (Bucket: TRIARCH_ROOMS)",
     "Free-Tier Quota Guard (1h TTL, History 1, Max 8KB, 2s Debounce)",
     "Global Active Public Room Browser in Lobby Modal with 1-Click Join",
