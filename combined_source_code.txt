@@ -1,6 +1,6 @@
 ================================================================================
  TRIARCH: CYCLIC EDGE - COMBINED SOURCE CODE BUNDLE
- Generated on: 2026-08-26T21:54:14.427Z
+ Generated on: 2026-08-26T22:01:55.231Z
  Total Source Files: 58
 ================================================================================
 
@@ -875,13 +875,16 @@ export class QRScannerHelper {
 
 {
   "name": "triarch-cyclic-edge",
-  "version": "1.0.0",
+  "version": "1.13.1",
   "description": "A strategic 3-player non-transitive tabletop game PWA powered by a verified mathematical dice engine",
   "type": "module",
   "main": "src/math/index.js",
   "scripts": {
     "test": "node --test test/*.test.js",
     "bundle": "node concat-source.js",
+    "bump": "node scripts/bump-version.js && npm run bundle",
+    "bump:minor": "node scripts/bump-version.js --minor && npm run bundle",
+    "bump:major": "node scripts/bump-version.js --major && npm run bundle",
     "start": "python3 -m http.server 8080"
   },
   "keywords": [
@@ -9664,7 +9667,7 @@ export function createDiceVisual(container, die) {
  * Robust offline caching, WebRTC P2P mesh support, NATS WebSocket adapter, and instant upgrade activation.
  */
 
-const CACHE_NAME = 'triarch-cache-v1.13.0';
+const CACHE_NAME = 'triarch-cache-v1.13.1';
 
 const PRECACHE_ASSETS = [
   './',
@@ -11914,8 +11917,8 @@ describe('Strict Two-Phase Execution Engine', () => {
 
 {
   "name": "TRIARCH: Cyclic Edge",
-  "version": "1.13.0",
-  "buildTime": "2026-08-26T14:20:00Z",
+  "version": "1.13.1",
+  "buildTime": "2026-08-26T22:01:41.505Z",
   "features": [
     "Strict Two-Phase Round Loop (Phase 1: Go-First Zero-Tie Initiative -> Phase 2: Tactical Turn & Energy Pot Clash)",
     "Dynamic Arena Pot Display & Accumulation of Unspent Energy",

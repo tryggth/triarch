@@ -1,12 +1,15 @@
 {
   "name": "triarch-cyclic-edge",
-  "version": "1.0.0",
+  "version": "1.13.1",
   "description": "A strategic 3-player non-transitive tabletop game PWA powered by a verified mathematical dice engine",
   "type": "module",
   "main": "src/math/index.js",
   "scripts": {
     "test": "node --test test/*.test.js",
     "bundle": "node concat-source.js",
+    "bump": "node scripts/bump-version.js && npm run bundle",
+    "bump:minor": "node scripts/bump-version.js --minor && npm run bundle",
+    "bump:major": "node scripts/bump-version.js --major && npm run bundle",
     "start": "python3 -m http.server 8080"
   },
   "keywords": [
