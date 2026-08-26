@@ -4,10 +4,12 @@
  *  - Broadcast: triarch.rooms.<ROOM_CODE>.broadcast
  *  - Unicast:   triarch.rooms.<ROOM_CODE>.peer.<TARGET_PEER_ID>
  *  - Presence:  triarch.rooms.<ROOM_CODE>.presence.<PEER_ID>
+ * Features live credsAuthenticator ingestion, auto-reconnect backoff, and telemetry hooks.
  */
 
 import { BaseTransport } from './base-transport.js';
 import { getNgscAuthenticator } from '../creds/ngs-creds.js';
+import { loadNatsConfig } from '../nats-config.js';
 
 export const NATS_DEFAULT_SERVERS = [
   'wss://connect.ngs.global',
@@ -23,11 +25,18 @@ export class NatsSignalingTransport extends BaseTransport {
   constructor(roomCode, peerId, options = {}) {
     super(roomCode, peerId, options);
 
-    this.serverUrls = options.servers || (options.serverUrl ? [options.serverUrl] : NATS_DEFAULT_SERVERS);
+    const persistedConfig = loadNatsConfig();
+    this.serverUrl = options.serverUrl || persistedConfig.serverUrl || NATS_DEFAULT_SERVERS[0];
+    this.credsRaw = options.credsRaw !== undefined ? options.credsRaw : persistedConfig.credsRaw;
+
     this.nc = null; // NATS connection instance
     this.jc = null; // JSON codec
     this.subscriptions = [];
     this.peerLastSeen = new Map(); // peerId -> timestamp
+
+    this.statusListeners = new Set();
+    this.trafficListeners = new Set();
+    this.lastStatus = { type: 'initial', data: null };
 
     this._heartbeatTimer = null;
     this._gcTimer = null;
@@ -76,13 +85,46 @@ export class NatsSignalingTransport extends BaseTransport {
     return NatsSignalingTransport.getPresenceWildcardSubject(this.roomCode);
   }
 
+  /* ---------------- Status & Traffic Telemetry Handlers ---------------- */
+
+  onStatusChange(callback) {
+    if (typeof callback === 'function') {
+      this.statusListeners.add(callback);
+      if (this.lastStatus) callback(this.lastStatus);
+    }
+  }
+
+  onTraffic(callback) {
+    if (typeof callback === 'function') {
+      this.trafficListeners.add(callback);
+    }
+  }
+
+  _dispatchStatus(status) {
+    this.lastStatus = status;
+    for (const cb of this.statusListeners) {
+      try { cb(status); } catch (e) {}
+    }
+  }
+
+  _recordTraffic(direction, subject, data) {
+    const entry = {
+      t: Date.now(),
+      direction, // 'IN' | 'OUT'
+      subject,
+      data
+    };
+    for (const cb of this.trafficListeners) {
+      try { cb(entry); } catch (e) {}
+    }
+  }
+
   /* ---------------- Connection & Codec Setup ---------------- */
 
   _initCodec(natsWsModule = null) {
     if (natsWsModule && natsWsModule.JSONCodec) {
       this.jc = natsWsModule.JSONCodec();
     } else {
-      // Robust pure JS JSON codec fallback
       const te = new TextEncoder();
       const td = new TextDecoder();
       this.jc = {
@@ -100,36 +142,51 @@ export class NatsSignalingTransport extends BaseTransport {
     if (this.nc || this.isConnected) return;
 
     try {
+      this._dispatchStatus({ type: 'connecting', server: this.serverUrl });
+
       // Dynamic import of nats.ws via CDN
       const natsWs = await import('https://esm.sh/nats.ws@1.30.2');
       this._initCodec(natsWs);
 
       const connectOpts = {
-        servers: this.serverUrls,
-        name: `triarch_${this.peerId}`,
+        servers: [this.serverUrl],
+        name: `triarch-${this.peerId}`,
+        reconnect: true,
+        maxReconnectAttempts: -1,
+        reconnectTimeWait: 2000,
         timeout: this.options.timeout || 10000,
         ...this.options.connectionOptions
       };
 
-      if (this.options.user && this.options.pass) {
-        connectOpts.user = this.options.user;
-        connectOpts.pass = this.options.pass;
-      }
-      if (this.options.token) {
-        connectOpts.token = this.options.token;
-      }
+      // Authenticator determination
       if (this.options.authenticator) {
         connectOpts.authenticator = this.options.authenticator;
-      } else if (!connectOpts.user && !connectOpts.token) {
-        // Use default Synadia Cloud authenticator
+      } else if (this.credsRaw && typeof natsWs.credsAuthenticator === 'function') {
+        const encoder = new TextEncoder();
+        connectOpts.authenticator = natsWs.credsAuthenticator(encoder.encode(this.credsRaw));
+      } else if (this.options.user && this.options.pass) {
+        connectOpts.user = this.options.user;
+        connectOpts.pass = this.options.pass;
+      } else if (this.options.token) {
+        connectOpts.token = this.options.token;
+      } else {
+        // Fallback default authenticator
         const defaultAuth = getNgscAuthenticator(natsWs);
-        if (defaultAuth) {
-          connectOpts.authenticator = defaultAuth;
-        }
+        if (defaultAuth) connectOpts.authenticator = defaultAuth;
       }
 
       this.nc = await natsWs.connect(connectOpts);
       this.isConnected = true;
+      this._dispatchStatus({ type: 'connected', server: this.nc.getServer() });
+
+      // Listen for connection lifecycle status events
+      (async () => {
+        try {
+          for await (const s of this.nc.status()) {
+            this._dispatchStatus(s);
+          }
+        } catch (err) {}
+      })();
 
       await this._initSubscriptions();
       this._startHeartbeat();
@@ -138,6 +195,7 @@ export class NatsSignalingTransport extends BaseTransport {
     } catch (err) {
       console.warn('[NATS Transport] Connection failed, falling back:', err);
       this.isConnected = false;
+      this._dispatchStatus({ type: 'error', error: err.message || String(err) });
       throw err;
     }
   }
@@ -150,12 +208,12 @@ export class NatsSignalingTransport extends BaseTransport {
     // 1. Subscribe to Broadcast Channel
     const subBroadcast = this.nc.subscribe(this.broadcastSubject);
     this.subscriptions.push(subBroadcast);
-    this._consumeMessages(subBroadcast);
+    this._consumeMessages(subBroadcast, this.broadcastSubject);
 
     // 2. Subscribe to Direct Unicast Peer Channel
     const subPeer = this.nc.subscribe(this.peerSubject);
     this.subscriptions.push(subPeer);
-    this._consumeMessages(subPeer);
+    this._consumeMessages(subPeer, this.peerSubject);
 
     // 3. Subscribe to Presence Wildcard
     const subPresence = this.nc.subscribe(this.presenceWildcardSubject);
@@ -163,11 +221,13 @@ export class NatsSignalingTransport extends BaseTransport {
     this._consumePresence(subPresence);
   }
 
-  async _consumeMessages(subscription) {
+  async _consumeMessages(subscription, subjectName) {
     try {
       for await (const msg of subscription) {
         try {
           const data = this.jc.decode(msg.data);
+          this._recordTraffic('IN', subjectName, data);
+
           if (data && data.from && data.from !== this.peerId) {
             if (data.payload !== undefined) {
               for (const cb of this.handlers.message) {
@@ -180,7 +240,7 @@ export class NatsSignalingTransport extends BaseTransport {
         }
       }
     } catch (err) {
-      // Subscription closed or drained
+      // Subscription closed
     }
   }
 
@@ -189,6 +249,7 @@ export class NatsSignalingTransport extends BaseTransport {
       for await (const msg of subscription) {
         try {
           const data = this.jc.decode(msg.data);
+          this._recordTraffic('IN', this.presenceWildcardSubject, data);
           this.handlePresenceMessage(data);
         } catch (err) {
           console.warn('[NATS Transport] Error in presence decode:', err);
@@ -222,7 +283,7 @@ export class NatsSignalingTransport extends BaseTransport {
 
     if (isNewPeer) {
       for (const cb of this.handlers.peerJoin) cb(fromPeerId);
-      // Send presence announcement immediately in response
+      // Send presence announcement in response
       this._publishPresence();
     }
   }
@@ -249,6 +310,7 @@ export class NatsSignalingTransport extends BaseTransport {
         _sys: sysAction || 'HEARTBEAT'
       };
       this.nc.publish(this.presenceSubject, this.jc.encode(data));
+      this._recordTraffic('OUT', this.presenceSubject, data);
     } catch (err) {
       console.warn('[NATS Transport] Error publishing presence:', err);
     }
@@ -270,6 +332,7 @@ export class NatsSignalingTransport extends BaseTransport {
     if (!this.nc || !this.jc) return;
     const packet = { from: this.peerId, payload };
     this.nc.publish(this.broadcastSubject, this.jc.encode(packet));
+    this._recordTraffic('OUT', this.broadcastSubject, packet);
   }
 
   send(payload, targetPeerId) {
@@ -277,6 +340,7 @@ export class NatsSignalingTransport extends BaseTransport {
     const targetSubject = NatsSignalingTransport.getPeerSubject(this.roomCode, targetPeerId);
     const packet = { from: this.peerId, to: targetPeerId, payload };
     this.nc.publish(targetSubject, this.jc.encode(packet));
+    this._recordTraffic('OUT', targetSubject, packet);
   }
 
   getConnectedPeers() {
@@ -284,7 +348,6 @@ export class NatsSignalingTransport extends BaseTransport {
   }
 
   async leave() {
-    // Send graceful leave announcement
     this._publishPresence('LEAVE');
 
     if (this._heartbeatTimer) {
@@ -315,6 +378,7 @@ export class NatsSignalingTransport extends BaseTransport {
     this.subscriptions = [];
     this.peerLastSeen.clear();
     this.isConnected = false;
+    this._dispatchStatus({ type: 'closed' });
     super.leave();
   }
 }

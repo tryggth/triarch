@@ -4,6 +4,7 @@
  */
 
 import { createTransport, TRANSPORT_TYPES } from './transports/index.js';
+import { loadNatsConfig } from './nats-config.js';
 
 // Unique random peer ID generator
 export function generatePeerId() {
@@ -29,8 +30,8 @@ export function generateRoomCode() {
  * @returns {import('./transports/base-transport.js').BaseTransport}
  */
 export function createSignalingTransport(roomCode, peerId = generatePeerId(), options = {}) {
-  const transportType = options.transportType || TRANSPORT_TYPES.BROADCAST;
-  return createTransport(transportType, roomCode, peerId, options);
+  const activeType = options.transportType || loadNatsConfig().activeTransport || TRANSPORT_TYPES.BROADCAST;
+  return createTransport(activeType, roomCode, peerId, options);
 }
 
 export { TRANSPORT_TYPES };

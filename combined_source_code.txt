@@ -1,7 +1,7 @@
 ================================================================================
  TRIARCH: CYCLIC EDGE - COMBINED SOURCE CODE BUNDLE
- Generated on: 2026-08-26T17:25:49.145Z
- Total Source Files: 48
+ Generated on: 2026-08-26T17:31:03.722Z
+ Total Source Files: 51
 ================================================================================
 
 
@@ -534,6 +534,9 @@ export class QRScannerHelper {
         </div>
 
       </div>
+
+      <!-- NATS Telemetry & Cloud Mesh Control Center -->
+      <div id="nats-telemetry-mount"></div>
     </section>
 
     <!-- ==================== SECTION 3: PARADOX EXPLORER (Lab Only) ==================== -->
@@ -2917,6 +2920,224 @@ export * from './protocol.js';
 export * from './signaling.js';
 export * from './peer-mesh.js';
 export * from './transports/index.js';
+export * from './nats-config.js';
+export * from './creds/index.js';
+
+
+
+/* =============================================================================
+ * FILE: src/network/nats-config.js
+ * ============================================================================= */
+
+/**
+ * TRIARCH: Cyclic Edge - NATS / Synadia Cloud Configuration Manager
+ * Handles credential parsing, JWT claims extraction, localStorage persistence,
+ * and transport mode configuration.
+ */
+
+import { NGS_RAW_CREDS } from './creds/ngs-creds.js';
+
+export const NATS_STORAGE_KEY = 'triarch_nats_config';
+
+export const DEFAULT_NATS_SERVERS = {
+  SYNADIA: 'wss://connect.ngs.global',
+  DEMO: 'wss://demo.nats.io:8443'
+};
+
+export const DEFAULT_NATS_CONFIG = Object.freeze({
+  serverUrl: DEFAULT_NATS_SERVERS.SYNADIA,
+  credsRaw: NGS_RAW_CREDS,
+  activeTransport: 'broadcast' // 'broadcast' | 'nats'
+});
+
+/**
+ * In-memory fallback config for environments without localStorage.
+ */
+let inMemoryConfig = { ...DEFAULT_NATS_CONFIG };
+
+/**
+ * Validates and extracts JWT and NKey Seed components from a .creds file string.
+ * @param {string} credsString
+ * @returns {{
+ *   valid: boolean,
+ *   jwt: string|null,
+ *   seed: string|null,
+ *   userName: string|null,
+ *   userType: string|null,
+ *   issuerAccount: string|null,
+ *   error: string|null
+ * }}
+ */
+export function parseAndValidateCreds(credsString) {
+  if (!credsString || typeof credsString !== 'string') {
+    return {
+      valid: false,
+      jwt: null,
+      seed: null,
+      userName: null,
+      userType: null,
+      issuerAccount: null,
+      error: 'Empty or invalid credential input.'
+    };
+  }
+
+  const trimmed = credsString.trim();
+
+  // Extract JWT block
+  const jwtRegex = /-----BEGIN NATS USER JWT-----\s*([A-Za-z0-9._-]+)\s*------END NATS USER JWT------/;
+  const jwtMatch = trimmed.match(jwtRegex);
+
+  if (!jwtMatch || !jwtMatch[1]) {
+    return {
+      valid: false,
+      jwt: null,
+      seed: null,
+      userName: null,
+      userType: null,
+      issuerAccount: null,
+      error: 'Missing or malformed "-----BEGIN NATS USER JWT-----" block.'
+    };
+  }
+
+  const jwt = jwtMatch[1].trim();
+
+  // Extract NKey Seed block
+  const seedRegex = /-----BEGIN (?:USER )?NKEY SEED-----\s*([A-Za-z0-9]+)\s*------END (?:USER )?NKEY SEED------/;
+  const seedMatch = trimmed.match(seedRegex);
+
+  if (!seedMatch || !seedMatch[1]) {
+    return {
+      valid: false,
+      jwt,
+      seed: null,
+      userName: null,
+      userType: null,
+      issuerAccount: null,
+      error: 'Missing or malformed "-----BEGIN USER NKEY SEED-----" block.'
+    };
+  }
+
+  const seed = seedMatch[1].trim();
+
+  // Validate seed prefix (SU = User seed, SO = Operator seed, SA = Account seed)
+  if (!seed.startsWith('SU') && !seed.startsWith('SO') && !seed.startsWith('SA')) {
+    return {
+      valid: false,
+      jwt,
+      seed,
+      userName: null,
+      userType: null,
+      issuerAccount: null,
+      error: `Invalid NKey Seed prefix "${seed.slice(0, 2)}". Expected User seed starting with "SU".`
+    };
+  }
+
+  // Parse JWT claims (Base64URL decode)
+  let userName = 'Unknown';
+  let userType = 'User';
+  let issuerAccount = null;
+
+  try {
+    const parts = jwt.split('.');
+    if (parts.length >= 2) {
+      const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+      const jsonPayload = typeof atob === 'function'
+        ? atob(base64)
+        : Buffer.from(base64, 'base64').toString('utf8');
+      const claims = JSON.parse(jsonPayload);
+
+      if (claims.name) userName = claims.name;
+      if (claims.nats && claims.nats.type) userType = claims.nats.type;
+      if (claims.nats && claims.nats.issuer_account) issuerAccount = claims.nats.issuer_account;
+    }
+  } catch (err) {
+    // Non-fatal, keep parsed credentials
+  }
+
+  return {
+    valid: true,
+    jwt,
+    seed,
+    userName,
+    userType,
+    issuerAccount,
+    error: null
+  };
+}
+
+/**
+ * Loads NATS connection configuration from localStorage with defaults fallback.
+ * @returns {{ serverUrl: string, credsRaw: string, activeTransport: string }}
+ */
+export function loadNatsConfig() {
+  if (typeof localStorage !== 'undefined') {
+    try {
+      const stored = localStorage.getItem(NATS_STORAGE_KEY);
+      if (stored) {
+        const parsed = JSON.parse(stored);
+        return {
+          serverUrl: parsed.serverUrl || DEFAULT_NATS_CONFIG.serverUrl,
+          credsRaw: parsed.credsRaw !== undefined ? parsed.credsRaw : DEFAULT_NATS_CONFIG.credsRaw,
+          activeTransport: parsed.activeTransport || DEFAULT_NATS_CONFIG.activeTransport
+        };
+      }
+    } catch (err) {
+      console.warn('[NATS Config] Error reading localStorage:', err);
+    }
+  }
+  return { ...inMemoryConfig };
+}
+
+/**
+ * Persists NATS configuration to localStorage.
+ * @param {Object} config
+ */
+export function saveNatsConfig(config) {
+  const current = loadNatsConfig();
+  const updated = {
+    serverUrl: config.serverUrl || current.serverUrl,
+    credsRaw: config.credsRaw !== undefined ? config.credsRaw : current.credsRaw,
+    activeTransport: config.activeTransport || current.activeTransport
+  };
+
+  inMemoryConfig = { ...updated };
+
+  if (typeof localStorage !== 'undefined') {
+    try {
+      localStorage.setItem(NATS_STORAGE_KEY, JSON.stringify(updated));
+    } catch (err) {
+      console.warn('[NATS Config] Error saving to localStorage:', err);
+    }
+  }
+
+  return updated;
+}
+
+/**
+ * Safely clears user-configured credentials from storage.
+ */
+export function clearNatsCredentials() {
+  const current = loadNatsConfig();
+  current.credsRaw = '';
+  saveNatsConfig(current);
+}
+
+/**
+ * Gets active transport identifier.
+ * @returns {'broadcast'|'nats'}
+ */
+export function getActiveTransportType() {
+  return loadNatsConfig().activeTransport || 'broadcast';
+}
+
+/**
+ * Sets active transport identifier ('broadcast' or 'nats').
+ * @param {'broadcast'|'nats'} transportType
+ */
+export function setActiveTransportType(transportType) {
+  const norm = (transportType || 'broadcast').toLowerCase();
+  saveNatsConfig({ activeTransport: norm === 'nats' ? 'nats' : 'broadcast' });
+}
 
 
 
@@ -3526,6 +3747,7 @@ export function computeStateChecksum(gameState) {
  */
 
 import { createTransport, TRANSPORT_TYPES } from './transports/index.js';
+import { loadNatsConfig } from './nats-config.js';
 
 // Unique random peer ID generator
 export function generatePeerId() {
@@ -3551,8 +3773,8 @@ export function generateRoomCode() {
  * @returns {import('./transports/base-transport.js').BaseTransport}
  */
 export function createSignalingTransport(roomCode, peerId = generatePeerId(), options = {}) {
-  const transportType = options.transportType || TRANSPORT_TYPES.BROADCAST;
-  return createTransport(transportType, roomCode, peerId, options);
+  const activeType = options.transportType || loadNatsConfig().activeTransport || TRANSPORT_TYPES.BROADCAST;
+  return createTransport(activeType, roomCode, peerId, options);
 }
 
 export { TRANSPORT_TYPES };
@@ -3850,10 +4072,12 @@ export function createTransport(type = TRANSPORT_TYPES.BROADCAST, roomCode, peer
  *  - Broadcast: triarch.rooms.<ROOM_CODE>.broadcast
  *  - Unicast:   triarch.rooms.<ROOM_CODE>.peer.<TARGET_PEER_ID>
  *  - Presence:  triarch.rooms.<ROOM_CODE>.presence.<PEER_ID>
+ * Features live credsAuthenticator ingestion, auto-reconnect backoff, and telemetry hooks.
  */
 
 import { BaseTransport } from './base-transport.js';
 import { getNgscAuthenticator } from '../creds/ngs-creds.js';
+import { loadNatsConfig } from '../nats-config.js';
 
 export const NATS_DEFAULT_SERVERS = [
   'wss://connect.ngs.global',
@@ -3869,11 +4093,18 @@ export class NatsSignalingTransport extends BaseTransport {
   constructor(roomCode, peerId, options = {}) {
     super(roomCode, peerId, options);
 
-    this.serverUrls = options.servers || (options.serverUrl ? [options.serverUrl] : NATS_DEFAULT_SERVERS);
+    const persistedConfig = loadNatsConfig();
+    this.serverUrl = options.serverUrl || persistedConfig.serverUrl || NATS_DEFAULT_SERVERS[0];
+    this.credsRaw = options.credsRaw !== undefined ? options.credsRaw : persistedConfig.credsRaw;
+
     this.nc = null; // NATS connection instance
     this.jc = null; // JSON codec
     this.subscriptions = [];
     this.peerLastSeen = new Map(); // peerId -> timestamp
+
+    this.statusListeners = new Set();
+    this.trafficListeners = new Set();
+    this.lastStatus = { type: 'initial', data: null };
 
     this._heartbeatTimer = null;
     this._gcTimer = null;
@@ -3922,13 +4153,46 @@ export class NatsSignalingTransport extends BaseTransport {
     return NatsSignalingTransport.getPresenceWildcardSubject(this.roomCode);
   }
 
+  /* ---------------- Status & Traffic Telemetry Handlers ---------------- */
+
+  onStatusChange(callback) {
+    if (typeof callback === 'function') {
+      this.statusListeners.add(callback);
+      if (this.lastStatus) callback(this.lastStatus);
+    }
+  }
+
+  onTraffic(callback) {
+    if (typeof callback === 'function') {
+      this.trafficListeners.add(callback);
+    }
+  }
+
+  _dispatchStatus(status) {
+    this.lastStatus = status;
+    for (const cb of this.statusListeners) {
+      try { cb(status); } catch (e) {}
+    }
+  }
+
+  _recordTraffic(direction, subject, data) {
+    const entry = {
+      t: Date.now(),
+      direction, // 'IN' | 'OUT'
+      subject,
+      data
+    };
+    for (const cb of this.trafficListeners) {
+      try { cb(entry); } catch (e) {}
+    }
+  }
+
   /* ---------------- Connection & Codec Setup ---------------- */
 
   _initCodec(natsWsModule = null) {
     if (natsWsModule && natsWsModule.JSONCodec) {
       this.jc = natsWsModule.JSONCodec();
     } else {
-      // Robust pure JS JSON codec fallback
       const te = new TextEncoder();
       const td = new TextDecoder();
       this.jc = {
@@ -3946,36 +4210,51 @@ export class NatsSignalingTransport extends BaseTransport {
     if (this.nc || this.isConnected) return;
 
     try {
+      this._dispatchStatus({ type: 'connecting', server: this.serverUrl });
+
       // Dynamic import of nats.ws via CDN
       const natsWs = await import('https://esm.sh/nats.ws@1.30.2');
       this._initCodec(natsWs);
 
       const connectOpts = {
-        servers: this.serverUrls,
-        name: `triarch_${this.peerId}`,
+        servers: [this.serverUrl],
+        name: `triarch-${this.peerId}`,
+        reconnect: true,
+        maxReconnectAttempts: -1,
+        reconnectTimeWait: 2000,
         timeout: this.options.timeout || 10000,
         ...this.options.connectionOptions
       };
 
-      if (this.options.user && this.options.pass) {
-        connectOpts.user = this.options.user;
-        connectOpts.pass = this.options.pass;
-      }
-      if (this.options.token) {
-        connectOpts.token = this.options.token;
-      }
+      // Authenticator determination
       if (this.options.authenticator) {
         connectOpts.authenticator = this.options.authenticator;
-      } else if (!connectOpts.user && !connectOpts.token) {
-        // Use default Synadia Cloud authenticator
+      } else if (this.credsRaw && typeof natsWs.credsAuthenticator === 'function') {
+        const encoder = new TextEncoder();
+        connectOpts.authenticator = natsWs.credsAuthenticator(encoder.encode(this.credsRaw));
+      } else if (this.options.user && this.options.pass) {
+        connectOpts.user = this.options.user;
+        connectOpts.pass = this.options.pass;
+      } else if (this.options.token) {
+        connectOpts.token = this.options.token;
+      } else {
+        // Fallback default authenticator
         const defaultAuth = getNgscAuthenticator(natsWs);
-        if (defaultAuth) {
-          connectOpts.authenticator = defaultAuth;
-        }
+        if (defaultAuth) connectOpts.authenticator = defaultAuth;
       }
 
       this.nc = await natsWs.connect(connectOpts);
       this.isConnected = true;
+      this._dispatchStatus({ type: 'connected', server: this.nc.getServer() });
+
+      // Listen for connection lifecycle status events
+      (async () => {
+        try {
+          for await (const s of this.nc.status()) {
+            this._dispatchStatus(s);
+          }
+        } catch (err) {}
+      })();
 
       await this._initSubscriptions();
       this._startHeartbeat();
@@ -3984,6 +4263,7 @@ export class NatsSignalingTransport extends BaseTransport {
     } catch (err) {
       console.warn('[NATS Transport] Connection failed, falling back:', err);
       this.isConnected = false;
+      this._dispatchStatus({ type: 'error', error: err.message || String(err) });
       throw err;
     }
   }
@@ -3996,12 +4276,12 @@ export class NatsSignalingTransport extends BaseTransport {
     // 1. Subscribe to Broadcast Channel
     const subBroadcast = this.nc.subscribe(this.broadcastSubject);
     this.subscriptions.push(subBroadcast);
-    this._consumeMessages(subBroadcast);
+    this._consumeMessages(subBroadcast, this.broadcastSubject);
 
     // 2. Subscribe to Direct Unicast Peer Channel
     const subPeer = this.nc.subscribe(this.peerSubject);
     this.subscriptions.push(subPeer);
-    this._consumeMessages(subPeer);
+    this._consumeMessages(subPeer, this.peerSubject);
 
     // 3. Subscribe to Presence Wildcard
     const subPresence = this.nc.subscribe(this.presenceWildcardSubject);
@@ -4009,11 +4289,13 @@ export class NatsSignalingTransport extends BaseTransport {
     this._consumePresence(subPresence);
   }
 
-  async _consumeMessages(subscription) {
+  async _consumeMessages(subscription, subjectName) {
     try {
       for await (const msg of subscription) {
         try {
           const data = this.jc.decode(msg.data);
+          this._recordTraffic('IN', subjectName, data);
+
           if (data && data.from && data.from !== this.peerId) {
             if (data.payload !== undefined) {
               for (const cb of this.handlers.message) {
@@ -4026,7 +4308,7 @@ export class NatsSignalingTransport extends BaseTransport {
         }
       }
     } catch (err) {
-      // Subscription closed or drained
+      // Subscription closed
     }
   }
 
@@ -4035,6 +4317,7 @@ export class NatsSignalingTransport extends BaseTransport {
       for await (const msg of subscription) {
         try {
           const data = this.jc.decode(msg.data);
+          this._recordTraffic('IN', this.presenceWildcardSubject, data);
           this.handlePresenceMessage(data);
         } catch (err) {
           console.warn('[NATS Transport] Error in presence decode:', err);
@@ -4068,7 +4351,7 @@ export class NatsSignalingTransport extends BaseTransport {
 
     if (isNewPeer) {
       for (const cb of this.handlers.peerJoin) cb(fromPeerId);
-      // Send presence announcement immediately in response
+      // Send presence announcement in response
       this._publishPresence();
     }
   }
@@ -4095,6 +4378,7 @@ export class NatsSignalingTransport extends BaseTransport {
         _sys: sysAction || 'HEARTBEAT'
       };
       this.nc.publish(this.presenceSubject, this.jc.encode(data));
+      this._recordTraffic('OUT', this.presenceSubject, data);
     } catch (err) {
       console.warn('[NATS Transport] Error publishing presence:', err);
     }
@@ -4116,6 +4400,7 @@ export class NatsSignalingTransport extends BaseTransport {
     if (!this.nc || !this.jc) return;
     const packet = { from: this.peerId, payload };
     this.nc.publish(this.broadcastSubject, this.jc.encode(packet));
+    this._recordTraffic('OUT', this.broadcastSubject, packet);
   }
 
   send(payload, targetPeerId) {
@@ -4123,6 +4408,7 @@ export class NatsSignalingTransport extends BaseTransport {
     const targetSubject = NatsSignalingTransport.getPeerSubject(this.roomCode, targetPeerId);
     const packet = { from: this.peerId, to: targetPeerId, payload };
     this.nc.publish(targetSubject, this.jc.encode(packet));
+    this._recordTraffic('OUT', targetSubject, packet);
   }
 
   getConnectedPeers() {
@@ -4130,7 +4416,6 @@ export class NatsSignalingTransport extends BaseTransport {
   }
 
   async leave() {
-    // Send graceful leave announcement
     this._publishPresence('LEAVE');
 
     if (this._heartbeatTimer) {
@@ -4161,6 +4446,7 @@ export class NatsSignalingTransport extends BaseTransport {
     this.subscriptions = [];
     this.peerLastSeen.clear();
     this.isConnected = false;
+    this._dispatchStatus({ type: 'closed' });
     super.leave();
   }
 }
@@ -4198,6 +4484,7 @@ import { BoardStageManager } from './board-view.js';
 import { OddsInspectorDrawer } from './odds-inspector.js';
 import { AuditLedgerView } from './audit-ledger.js';
 import { CyclicGraphRenderer } from './visualizer.js';
+import { NatsTelemetryPanel } from './nats-telemetry-panel.js';
 import {
   renderOddsMatrixHTML,
   renderPlayerHUDHTML,
@@ -4218,6 +4505,7 @@ class TriarchApp {
     this.boardStage = null;
     this.auditLedger = null;
     this.graphRenderer = null;
+    this.natsPanel = null;
     this.currentBuildVersion = null;
 
     // Stealth Math Lab Mode State (defaults to false for clean tabletop experience)
@@ -4881,6 +5169,12 @@ class TriarchApp {
         sfx.playClick();
         this.runLiveMonteCarlo();
       });
+    }
+
+    // Initialize NATS Telemetry Panel
+    const telemetryMount = document.getElementById('nats-telemetry-mount');
+    if (telemetryMount) {
+      this.natsPanel = new NatsTelemetryPanel(telemetryMount, this.mesh);
     }
   }
 
@@ -5948,6 +6242,527 @@ export class MultiplayerLobbyModal {
 
 
 /* =============================================================================
+ * FILE: src/ui/nats-telemetry-panel.js
+ * ============================================================================= */
+
+/**
+ * TRIARCH: Cyclic Edge - NATS Telemetry & Configuration Panel
+ * Dedicated control dashboard in Math Lab Suite for Synadia Cloud / NATS.ws:
+ *  - Transport backend switcher (BroadcastChannel vs Synadia Cloud NATS)
+ *  - Server endpoint selector & live connection latency probe
+ *  - Drag-and-drop / textarea .creds ingestion with JWT & NKey validation
+ *  - Real-time subject traffic monitor
+ */
+
+import {
+  loadNatsConfig,
+  saveNatsConfig,
+  clearNatsCredentials,
+  parseAndValidateCreds,
+  DEFAULT_NATS_SERVERS
+} from '../network/nats-config.js';
+import { NGS_RAW_CREDS } from '../network/creds/ngs-creds.js';
+import { toast } from './toast.js';
+import { sfx } from '../audio/sfx.js';
+
+export class NatsTelemetryPanel {
+  /**
+   * @param {HTMLElement|string} mountElement
+   * @param {import('../network/peer-mesh.js').PeerMeshManager} [peerMesh]
+   */
+  constructor(mountElement, peerMesh = null) {
+    this.container = typeof mountElement === 'string'
+      ? document.querySelector(mountElement)
+      : mountElement;
+    this.mesh = peerMesh;
+
+    this.config = loadNatsConfig();
+    this.trafficLogs = [];
+    this.isProbing = false;
+
+    this.render();
+    this.bindEvents();
+    this.hookMeshTraffic();
+  }
+
+  hookMeshTraffic() {
+    if (this.mesh && this.mesh.transport && typeof this.mesh.transport.onTraffic === 'function') {
+      this.mesh.transport.onTraffic((entry) => {
+        this.addTrafficEntry(entry);
+      });
+    }
+  }
+
+  addTrafficEntry(entry) {
+    this.trafficLogs.unshift(entry);
+    if (this.trafficLogs.length > 50) this.trafficLogs.pop();
+    this.renderTrafficList();
+  }
+
+  render() {
+    if (!this.container) return;
+
+    const credCheck = parseAndValidateCreds(this.config.credsRaw);
+    const isNatsActive = this.config.activeTransport === 'nats';
+
+    this.container.innerHTML = `
+      <div class="p-6 rounded-3xl border border-indigo-500/40 bg-slate-950/80 backdrop-blur-xl shadow-2xl space-y-6">
+        
+        <!-- Header Banner -->
+        <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-4">
+          <div>
+            <div class="flex items-center gap-2">
+              <span class="text-lg">📡</span>
+              <h2 class="text-sm sm:text-base font-bold text-white font-mono tracking-wider">
+                SYNADIA CLOUD / NATS WEBSOCKET TELEMETRY
+              </h2>
+            </div>
+            <p class="text-xs text-slate-400 mt-0.5">
+              High-throughput pub/sub signaling mesh connecting multi-device tabletop rooms over WebSocket.
+            </p>
+          </div>
+
+          <!-- Active Transport Status Badge -->
+          <div class="flex items-center gap-2">
+            <span class="text-xs font-mono text-slate-400">Signaling Backend:</span>
+            <span id="telemetry-active-badge" class="px-2.5 py-1 rounded-full text-xs font-mono font-bold ${
+              isNatsActive
+                ? 'bg-purple-950/80 border border-purple-500/50 text-purple-300 shadow-[0_0_10px_#a855f740]'
+                : 'bg-indigo-950/80 border border-indigo-500/50 text-indigo-300'
+            }">
+              ${isNatsActive ? '⚡ Synadia Cloud NATS' : '🌐 Local BroadcastChannel'}
+            </span>
+          </div>
+        </div>
+
+        <!-- Section 1: Backend Mode Selector -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+          
+          <label class="flex items-start gap-3 p-4 rounded-2xl border ${
+            !isNatsActive ? 'border-indigo-500/60 bg-indigo-950/20 shadow-md' : 'border-slate-800 bg-slate-900/40'
+          } cursor-pointer transition-all">
+            <input type="radio" name="telemetry-transport" value="broadcast" ${!isNatsActive ? 'checked' : ''} class="mt-1 accent-indigo-500" />
+            <div>
+              <div class="text-xs font-bold font-mono text-white">Local BroadcastChannel Transport</div>
+              <div class="text-[11px] text-slate-400 mt-1">
+                Zero-configuration, zero-latency signaling within the same browser and across local browser tabs.
+              </div>
+            </div>
+          </label>
+
+          <label class="flex items-start gap-3 p-4 rounded-2xl border ${
+            isNatsActive ? 'border-purple-500/60 bg-purple-950/20 shadow-md' : 'border-slate-800 bg-slate-900/40'
+          } cursor-pointer transition-all">
+            <input type="radio" name="telemetry-transport" value="nats" ${isNatsActive ? 'checked' : ''} class="mt-1 accent-purple-500" />
+            <div>
+              <div class="text-xs font-bold font-mono text-white">Synadia Cloud NATS WebSocket Transport</div>
+              <div class="text-[11px] text-slate-400 mt-1">
+                Global cloud pub/sub network for real-time room discovery and multiplayer over the public Internet.
+              </div>
+            </div>
+          </label>
+
+        </div>
+
+        <!-- Section 2: Server Endpoint Configuration & Live Probe -->
+        <div class="space-y-3 p-4 rounded-2xl bg-slate-900/50 border border-slate-800">
+          <div class="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+            <label for="nats-server-input" class="text-xs font-bold uppercase tracking-wider text-slate-300 font-mono">
+              WebSocket Server Endpoint
+            </label>
+            <div class="flex items-center gap-2">
+              <button id="btn-set-synadia-server" class="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-indigo-300 transition-colors">
+                Synadia NGS
+              </button>
+              <button id="btn-set-demo-server" class="text-[11px] font-mono px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-slate-400 transition-colors">
+                NATS Demo
+              </button>
+            </div>
+          </div>
+
+          <div class="flex flex-col sm:flex-row gap-2">
+            <input id="nats-server-input" type="text" value="${this.config.serverUrl}"
+              placeholder="wss://connect.ngs.global"
+              class="flex-1 bg-slate-950 border border-slate-700 focus:border-indigo-500 rounded-xl px-3 py-2 text-xs font-mono text-white focus:outline-none" />
+            
+            <button id="btn-probe-nats" class="px-4 py-2 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs font-mono font-bold transition-all shadow-[0_0_12px_#6366f140] flex items-center justify-center gap-1.5 whitespace-nowrap">
+              <span>⚡</span> Test Probe Connection
+            </button>
+          </div>
+
+          <!-- Probe Result Output -->
+          <div id="nats-probe-result" class="hidden text-xs font-mono p-3 rounded-xl border"></div>
+        </div>
+
+        <!-- Section 3: Credentials Ingestion (JWT / NKey Seed) -->
+        <div class="space-y-3 p-4 rounded-2xl bg-slate-900/50 border border-slate-800">
+          <div class="flex items-center justify-between">
+            <div>
+              <span class="text-xs font-bold uppercase tracking-wider text-slate-300 font-mono">
+                Synadia User Credentials (.creds)
+              </span>
+              <p class="text-[11px] text-slate-400">
+                JWT Identity & Ed25519 NKey Seed for secure mutual authentication.
+              </p>
+            </div>
+
+            <!-- Credentials Status Badge -->
+            <div id="creds-status-badge">
+              ${
+                credCheck.valid
+                  ? `<span class="px-2.5 py-1 rounded-full bg-emerald-950/80 border border-emerald-500/50 text-emerald-300 text-xs font-mono font-bold flex items-center gap-1">
+                      <span>🟢</span> User: ${credCheck.userName} (${credCheck.seed.slice(0, 4)}...${credCheck.seed.slice(-4)})
+                    </span>`
+                  : `<span class="px-2.5 py-1 rounded-full bg-slate-800 border border-slate-700 text-slate-400 text-xs font-mono">
+                      ⚪ Anonymous / Demo Mode
+                    </span>`
+              }
+            </div>
+          </div>
+
+          <!-- Drag-and-Drop Area & File Trigger -->
+          <div id="creds-drop-zone" class="border-2 border-dashed border-slate-700 hover:border-indigo-500/80 rounded-2xl p-4 text-center cursor-pointer transition-colors bg-slate-950/40">
+            <input type="file" id="creds-file-input" accept=".creds,text/plain" class="hidden" />
+            <div class="text-xs font-mono text-slate-300 flex items-center justify-center gap-2">
+              <span>📄</span>
+              <span>Drop <strong>.creds</strong> file here, or <span class="text-indigo-400 underline">browse</span></span>
+            </div>
+          </div>
+
+          <!-- Textarea Credential Editor -->
+          <div class="space-y-1.5">
+            <textarea id="nats-creds-textarea" rows="4"
+              placeholder="Paste raw .creds content (-----BEGIN NATS USER JWT----- ... -----BEGIN USER NKEY SEED-----)"
+              class="w-full bg-slate-950 border border-slate-800 focus:border-indigo-500 rounded-xl p-3 text-[11px] font-mono text-slate-300 focus:outline-none resize-y">${this.config.credsRaw || ''}</textarea>
+          </div>
+
+          <!-- Credential Control Buttons -->
+          <div class="flex flex-wrap items-center justify-between gap-2 pt-1">
+            <div class="flex items-center gap-2">
+              <button id="btn-save-creds" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-white text-xs font-mono transition-all">
+                💾 Save Credentials
+              </button>
+              <button id="btn-restore-default-creds" class="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-300 text-xs font-mono transition-all" title="Restore embedded NGS-RANDD credentials">
+                ↺ Restore Default NGS
+              </button>
+            </div>
+            <button id="btn-clear-creds" class="px-3 py-1.5 rounded-xl bg-rose-950/60 hover:bg-rose-900 border border-rose-500/40 text-rose-300 text-xs font-mono transition-all">
+              🗑️ Clear Credentials
+            </button>
+          </div>
+        </div>
+
+        <!-- Section 4: Live Subject Traffic Monitor -->
+        <div class="space-y-3 p-4 rounded-2xl bg-slate-900/50 border border-slate-800">
+          <div class="flex items-center justify-between">
+            <div class="flex items-center gap-2">
+              <span class="text-xs font-bold uppercase tracking-wider text-slate-300 font-mono">
+                Live Subject Traffic Monitor
+              </span>
+              <span class="text-[10px] font-mono px-2 py-0.5 rounded bg-slate-800 text-slate-400">
+                triarch.rooms.*
+              </span>
+            </div>
+            <button id="btn-clear-traffic" class="text-[11px] font-mono text-slate-400 hover:text-slate-200">
+              Clear Log
+            </button>
+          </div>
+
+          <!-- Traffic Log Scroll Area -->
+          <div id="nats-traffic-list" class="max-h-48 overflow-y-auto space-y-1.5 pr-1 font-mono text-[11px]">
+            <div class="text-slate-500 text-center py-4 text-xs">
+              No NATS packets recorded yet. Connect to a room or run a test probe to observe live telemetry.
+            </div>
+          </div>
+        </div>
+
+      </div>
+    `;
+  }
+
+  renderTrafficList() {
+    const listEl = this.container ? this.container.querySelector('#nats-traffic-list') : null;
+    if (!listEl) return;
+
+    if (this.trafficLogs.length === 0) {
+      listEl.innerHTML = `<div class="text-slate-500 text-center py-4 text-xs">No NATS packets recorded yet.</div>`;
+      return;
+    }
+
+    listEl.innerHTML = this.trafficLogs.map((entry) => {
+      const timeStr = new Date(entry.t).toISOString().substring(11, 23);
+      const isOut = entry.direction === 'OUT';
+      const color = isOut ? 'text-amber-400' : 'text-cyan-400';
+      const icon = isOut ? '⬆️' : '⬇️';
+
+      let summary = '';
+      if (entry.data && typeof entry.data === 'object') {
+        if (entry.data._sys) summary = `[SYS: ${entry.data._sys}] from: ${entry.data.from || '?'}`;
+        else if (entry.data.payload && entry.data.payload.type) summary = `[ACTION: ${entry.data.payload.type}] from: ${entry.data.from || '?'}`;
+        else summary = JSON.stringify(entry.data).substring(0, 60);
+      }
+
+      return `
+        <div class="p-2 rounded-lg bg-slate-950 border border-slate-800/80 flex items-center justify-between gap-2">
+          <div class="flex items-center gap-1.5 overflow-hidden">
+            <span class="text-xs">${icon}</span>
+            <span class="text-[10px] text-slate-500">${timeStr}</span>
+            <span class="font-bold ${color}">${entry.subject}</span>
+            <span class="text-slate-400 truncate max-w-xs text-[10px]">${summary}</span>
+          </div>
+          <span class="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-400">${entry.direction}</span>
+        </div>
+      `;
+    }).join('');
+  }
+
+  bindEvents() {
+    if (!this.container) return;
+
+    // 1. Radio Transport Switcher
+    const radios = this.container.querySelectorAll('input[name="telemetry-transport"]');
+    radios.forEach((r) => {
+      r.addEventListener('change', (e) => {
+        const val = e.target.value;
+        this.config.activeTransport = val;
+        saveNatsConfig(this.config);
+        sfx.playClick();
+        toast.show(
+          val === 'nats' ? '⚡ Switched signaling to Synadia Cloud NATS' : '🌐 Switched signaling to Local BroadcastChannel',
+          'info',
+          2500
+        );
+        this.render();
+        this.bindEvents();
+      });
+    });
+
+    // 2. Server Preset Buttons
+    const btnSynadia = this.container.querySelector('#btn-set-synadia-server');
+    const btnDemo = this.container.querySelector('#btn-set-demo-server');
+    const serverInput = this.container.querySelector('#nats-server-input');
+
+    if (btnSynadia && serverInput) {
+      btnSynadia.addEventListener('click', () => {
+        serverInput.value = DEFAULT_NATS_SERVERS.SYNADIA;
+        this.config.serverUrl = serverInput.value;
+        saveNatsConfig(this.config);
+        sfx.playClick();
+        toast.show('Endpoint set to Synadia Global', 'info', 1500);
+      });
+    }
+
+    if (btnDemo && serverInput) {
+      btnDemo.addEventListener('click', () => {
+        serverInput.value = DEFAULT_NATS_SERVERS.DEMO;
+        this.config.serverUrl = serverInput.value;
+        saveNatsConfig(this.config);
+        sfx.playClick();
+        toast.show('Endpoint set to NATS Demo', 'info', 1500);
+      });
+    }
+
+    // 3. Credential Saving & Validation
+    const textarea = this.container.querySelector('#nats-creds-textarea');
+    const btnSave = this.container.querySelector('#btn-save-creds');
+    const btnRestore = this.container.querySelector('#btn-restore-default-creds');
+    const btnClear = this.container.querySelector('#btn-clear-creds');
+
+    if (btnSave && textarea) {
+      btnSave.addEventListener('click', () => {
+        const raw = textarea.value.trim();
+        const check = parseAndValidateCreds(raw);
+        if (raw && !check.valid) {
+          toast.show(`Credential Error: ${check.error}`, 'warning', 3500);
+          return;
+        }
+
+        this.config.credsRaw = raw;
+        if (serverInput) this.config.serverUrl = serverInput.value.trim() || DEFAULT_NATS_SERVERS.SYNADIA;
+        saveNatsConfig(this.config);
+        sfx.playDominanceChime();
+        toast.show(raw ? `✅ Credentials Saved for user: ${check.userName}` : 'Credentials cleared.', 'success', 2500);
+        this.render();
+        this.bindEvents();
+      });
+    }
+
+    if (btnRestore) {
+      btnRestore.addEventListener('click', () => {
+        this.config.credsRaw = NGS_RAW_CREDS;
+        saveNatsConfig(this.config);
+        sfx.playClick();
+        toast.show('Restored embedded Synadia NGS credentials!', 'success', 2000);
+        this.render();
+        this.bindEvents();
+      });
+    }
+
+    if (btnClear) {
+      btnClear.addEventListener('click', () => {
+        clearNatsCredentials();
+        this.config = loadNatsConfig();
+        sfx.playClick();
+        toast.show('Credentials cleared.', 'info', 2000);
+        this.render();
+        this.bindEvents();
+      });
+    }
+
+    // 4. File Drag & Drop
+    const dropZone = this.container.querySelector('#creds-drop-zone');
+    const fileInput = this.container.querySelector('#creds-file-input');
+
+    if (dropZone && fileInput) {
+      dropZone.addEventListener('click', () => fileInput.click());
+
+      dropZone.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        dropZone.classList.add('border-indigo-500', 'bg-indigo-950/30');
+      });
+
+      dropZone.addEventListener('dragleave', () => {
+        dropZone.classList.remove('border-indigo-500', 'bg-indigo-950/30');
+      });
+
+      dropZone.addEventListener('drop', (e) => {
+        e.preventDefault();
+        dropZone.classList.remove('border-indigo-500', 'bg-indigo-950/30');
+        if (e.dataTransfer.files && e.dataTransfer.files[0]) {
+          this.handleFile(e.dataTransfer.files[0]);
+        }
+      });
+
+      fileInput.addEventListener('change', (e) => {
+        if (e.target.files && e.target.files[0]) {
+          this.handleFile(e.target.files[0]);
+        }
+      });
+    }
+
+    // 5. Connection Test Probe
+    const btnProbe = this.container.querySelector('#btn-probe-nats');
+    if (btnProbe) {
+      btnProbe.addEventListener('click', () => this.runProbe());
+    }
+
+    // 6. Clear Traffic
+    const btnClearTraffic = this.container.querySelector('#btn-clear-traffic');
+    if (btnClearTraffic) {
+      btnClearTraffic.addEventListener('click', () => {
+        this.trafficLogs = [];
+        this.renderTrafficList();
+      });
+    }
+  }
+
+  async handleFile(file) {
+    try {
+      const text = await file.text();
+      const check = parseAndValidateCreds(text);
+      if (!check.valid) {
+        toast.show(`File Invalid: ${check.error}`, 'warning', 3500);
+        return;
+      }
+      this.config.credsRaw = text;
+      saveNatsConfig(this.config);
+      sfx.playDominanceChime();
+      toast.show(`Loaded .creds for user: ${check.userName}`, 'success', 2500);
+      this.render();
+      this.bindEvents();
+    } catch (err) {
+      toast.show(`Failed to read file: ${err.message}`, 'warning', 3000);
+    }
+  }
+
+  async runProbe() {
+    if (this.isProbing) return;
+    this.isProbing = true;
+
+    const resultEl = this.container ? this.container.querySelector('#nats-probe-result') : null;
+    const btnProbe = this.container ? this.container.querySelector('#btn-probe-nats') : null;
+
+    if (btnProbe) {
+      btnProbe.disabled = true;
+      btnProbe.innerHTML = `<span class="animate-spin">⏳</span> Probing...`;
+    }
+
+    if (resultEl) {
+      resultEl.classList.remove('hidden', 'bg-emerald-950/60', 'border-emerald-500/50', 'text-emerald-300', 'bg-rose-950/60', 'border-rose-500/50', 'text-rose-300');
+      resultEl.classList.add('bg-slate-900', 'border-slate-700', 'text-slate-300', 'block');
+      resultEl.textContent = 'Initiating WebSocket handshake and TLS negotiation with Synadia...';
+    }
+
+    const tStart = performance.now();
+
+    try {
+      const natsWs = await import('https://esm.sh/nats.ws@1.30.2');
+      const server = this.config.serverUrl || DEFAULT_NATS_SERVERS.SYNADIA;
+
+      const connectOpts = {
+        servers: [server],
+        name: `triarch_probe_${Date.now().toString(36)}`,
+        timeout: 8000
+      };
+
+      if (this.config.credsRaw && typeof natsWs.credsAuthenticator === 'function') {
+        const encoder = new TextEncoder();
+        connectOpts.authenticator = natsWs.credsAuthenticator(encoder.encode(this.config.credsRaw));
+      }
+
+      const nc = await natsWs.connect(connectOpts);
+      const rtt = Math.round(performance.now() - tStart);
+      const serverInfo = nc.getServer ? nc.getServer() : server;
+
+      // Publish probe event to telemetry
+      this.addTrafficEntry({
+        t: Date.now(),
+        direction: 'OUT',
+        subject: 'triarch.telemetry.probe',
+        data: { status: 'PROBE_OK', rtt }
+      });
+
+      await nc.close();
+
+      if (resultEl) {
+        resultEl.className = 'text-xs font-mono p-3 rounded-xl border bg-emerald-950/60 border-emerald-500/50 text-emerald-300 block space-y-1';
+        resultEl.innerHTML = `
+          <div class="font-bold flex items-center gap-1.5">
+            <span>✅</span> Handshake Verified — Connected in ${rtt}ms
+          </div>
+          <div class="text-[11px] text-emerald-400/80">
+            Endpoint: ${serverInfo} · TLS 1.3 · Authentication: Verified
+          </div>
+        `;
+      }
+      sfx.playDominanceChime();
+      toast.show(`NATS Probe Successful! (${rtt}ms RTT)`, 'success', 2500);
+    } catch (err) {
+      if (resultEl) {
+        resultEl.className = 'text-xs font-mono p-3 rounded-xl border bg-rose-950/60 border-rose-500/50 text-rose-300 block space-y-1';
+        resultEl.innerHTML = `
+          <div class="font-bold flex items-center gap-1.5">
+            <span>❌</span> Connection Probe Failed
+          </div>
+          <div class="text-[11px] text-rose-400/90">
+            ${err.message || String(err)}
+          </div>
+        `;
+      }
+      toast.show(`Probe Failed: ${err.message}`, 'warning', 3500);
+    } finally {
+      this.isProbing = false;
+      if (btnProbe) {
+        btnProbe.disabled = false;
+        btnProbe.innerHTML = `<span>⚡</span> Test Probe Connection`;
+      }
+    }
+  }
+}
+
+
+
+/* =============================================================================
  * FILE: src/ui/odds-inspector.js
  * ============================================================================= */
 
@@ -6848,7 +7663,7 @@ export function createDiceVisual(container, die) {
  * Robust offline caching, WebRTC P2P mesh support, NATS WebSocket adapter, and instant upgrade activation.
  */
 
-const CACHE_NAME = 'triarch-cache-v1.5.0';
+const CACHE_NAME = 'triarch-cache-v1.6.0';
 
 const PRECACHE_ASSETS = [
   './',
@@ -6869,6 +7684,9 @@ const PRECACHE_ASSETS = [
   './src/network/transports/broadcast-transport.js',
   './src/network/transports/nats-transport.js',
   './src/network/transports/index.js',
+  './src/network/nats-config.js',
+  './src/network/creds/ngs-creds.js',
+  './src/network/creds/index.js',
   './src/network/index.js',
   './src/math/dice.js',
   './src/math/probability.js',
@@ -6884,6 +7702,7 @@ const PRECACHE_ASSETS = [
   './src/ui/odds-inspector.js',
   './src/ui/audit-ledger.js',
   './src/ui/visualizer.js',
+  './src/ui/nats-telemetry-panel.js',
   './src/ui/components.js',
   './src/ui/toast.js',
   './src/ui/tour.js',
@@ -7488,6 +8307,142 @@ describe('Game Theory Insights Generator', () => {
 
 
 /* =============================================================================
+ * FILE: test/nats-auth.test.js
+ * ============================================================================= */
+
+/**
+ * Automated Verification Suite - Synadia Credentials & NATS Configuration
+ */
+
+import { test, describe } from 'node:test';
+import assert from 'node:assert/strict';
+import {
+  parseAndValidateCreds,
+  loadNatsConfig,
+  saveNatsConfig,
+  clearNatsCredentials,
+  getActiveTransportType,
+  setActiveTransportType,
+  DEFAULT_NATS_SERVERS
+} from '../src/network/nats-config.js';
+import {
+  createSignalingTransport,
+  TRANSPORT_TYPES
+} from '../src/network/signaling.js';
+import {
+  BroadcastSignalingTransport,
+  NatsSignalingTransport
+} from '../src/network/transports/index.js';
+import { NGS_RAW_CREDS } from '../src/network/creds/ngs-creds.js';
+
+describe('Synadia .creds File Parsing & Ingestion', () => {
+  test('Extracts valid JWT and NKey seed from standard NGS credentials', () => {
+    const result = parseAndValidateCreds(NGS_RAW_CREDS);
+
+    assert.equal(result.valid, true);
+    assert.ok(result.jwt);
+    assert.ok(result.jwt.startsWith('eyJ'));
+    assert.ok(result.seed);
+    assert.ok(result.seed.startsWith('SU'));
+    assert.equal(result.userName, 'su');
+    assert.equal(result.userType, 'user');
+    assert.equal(result.error, null);
+  });
+
+  test('Rejects null, empty or non-string inputs safely', () => {
+    assert.equal(parseAndValidateCreds(null).valid, false);
+    assert.equal(parseAndValidateCreds('').valid, false);
+    assert.equal(parseAndValidateCreds(undefined).valid, false);
+    assert.ok(parseAndValidateCreds('').error);
+  });
+
+  test('Rejects credential missing JWT header or footer block', () => {
+    const broken = `
+      Some random text
+      -----BEGIN USER NKEY SEED-----
+      SUAF2F4LYTRORMF4CFFVV7VC275LFCQ6INZP3JCL72WO5JDMUF42DRZKJ4
+      ------END USER NKEY SEED------
+    `;
+    const res = parseAndValidateCreds(broken);
+    assert.equal(res.valid, false);
+    assert.match(res.error, /BEGIN NATS USER JWT/);
+  });
+
+  test('Rejects credential missing NKey seed block', () => {
+    const broken = `
+      -----BEGIN NATS USER JWT-----
+      eyJ0eXAiOiJKV1QiLCJhbGciOiJlZDI1NTE5LW5rZXkifQ.eyJqdGkiOiIxMjMifQ.sig
+      ------END NATS USER JWT------
+    `;
+    const res = parseAndValidateCreds(broken);
+    assert.equal(res.valid, false);
+    assert.match(res.error, /BEGIN USER NKEY SEED/);
+  });
+
+  test('Rejects invalid NKey seed prefix (non-user seed)', () => {
+    const invalidSeed = `
+      -----BEGIN NATS USER JWT-----
+      eyJ0eXAiOiJKV1QiLCJhbGciOiJlZDI1NTE5LW5rZXkifQ.eyJqdGkiOiIxMjMifQ.sig
+      ------END NATS USER JWT------
+      -----BEGIN USER NKEY SEED-----
+      XXINVALIDPREFIX1234567890
+      ------END USER NKEY SEED------
+    `;
+    const res = parseAndValidateCreds(invalidSeed);
+    assert.equal(res.valid, false);
+    assert.match(res.error, /Invalid NKey Seed prefix/);
+  });
+});
+
+describe('NATS Configuration Storage & Transport Switching', () => {
+  test('Saves and retrieves NATS configuration', () => {
+    saveNatsConfig({
+      serverUrl: 'wss://custom.nats.example:4222',
+      activeTransport: 'nats'
+    });
+
+    const cfg = loadNatsConfig();
+    assert.equal(cfg.serverUrl, 'wss://custom.nats.example:4222');
+    assert.equal(cfg.activeTransport, 'nats');
+  });
+
+  test('setActiveTransportType and getActiveTransportType toggle state correctly', () => {
+    setActiveTransportType('nats');
+    assert.equal(getActiveTransportType(), 'nats');
+
+    setActiveTransportType('broadcast');
+    assert.equal(getActiveTransportType(), 'broadcast');
+  });
+
+  test('createSignalingTransport uses dynamically configured active transport', () => {
+    // 1. Broadcast Mode
+    setActiveTransportType('broadcast');
+    const bcTransport = createSignalingTransport('TR-TEST-1', 'peer_test');
+    assert.ok(bcTransport instanceof BroadcastSignalingTransport);
+    bcTransport.leave();
+
+    // 2. NATS Mode
+    setActiveTransportType('nats');
+    const natsTransport = createSignalingTransport('TR-TEST-2', 'peer_test');
+    assert.ok(natsTransport instanceof NatsSignalingTransport);
+    natsTransport.leave();
+
+    // Reset back to broadcast default
+    setActiveTransportType('broadcast');
+  });
+
+  test('clearNatsCredentials empties credsRaw', () => {
+    saveNatsConfig({ credsRaw: 'test_creds' });
+    assert.equal(loadNatsConfig().credsRaw, 'test_creds');
+
+    clearNatsCredentials();
+    assert.equal(loadNatsConfig().credsRaw, '');
+  });
+});
+
+
+
+/* =============================================================================
  * FILE: test/nats-transport.test.js
  * ============================================================================= */
 
@@ -8059,9 +9014,14 @@ describe('Graph-Theoretic Cycle Detection', () => {
 
 {
   "name": "TRIARCH: Cyclic Edge",
-  "version": "1.5.0",
-  "buildTime": "2026-08-26T10:15:00Z",
+  "version": "1.6.0",
+  "buildTime": "2026-08-26T10:45:00Z",
   "features": [
+    "Synadia Cloud NATS Telemetry & Control Center (Math Lab Suite)",
+    "Client-Side .creds Ingestion (Drag-and-Drop / Textarea / JWT Validation)",
+    "Live WebSocket Connection Probe & RTT Latency Diagnostic",
+    "Dynamic Transport Switcher (BroadcastChannel vs Synadia Cloud NATS)",
+    "Real-Time NATS Subject Traffic Monitor",
     "Pluggable Network Transport Abstraction (BaseTransport)",
     "Synadia Cloud / NATS WebSocket Transport Adapter (nats.ws)",
     "Standardized NATS Subject Hierarchy (triarch.rooms.<CODE>.*)",

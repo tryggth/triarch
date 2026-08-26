@@ -25,6 +25,7 @@ import { BoardStageManager } from './board-view.js';
 import { OddsInspectorDrawer } from './odds-inspector.js';
 import { AuditLedgerView } from './audit-ledger.js';
 import { CyclicGraphRenderer } from './visualizer.js';
+import { NatsTelemetryPanel } from './nats-telemetry-panel.js';
 import {
   renderOddsMatrixHTML,
   renderPlayerHUDHTML,
@@ -45,6 +46,7 @@ class TriarchApp {
     this.boardStage = null;
     this.auditLedger = null;
     this.graphRenderer = null;
+    this.natsPanel = null;
     this.currentBuildVersion = null;
 
     // Stealth Math Lab Mode State (defaults to false for clean tabletop experience)
@@ -708,6 +710,12 @@ class TriarchApp {
         sfx.playClick();
         this.runLiveMonteCarlo();
       });
+    }
+
+    // Initialize NATS Telemetry Panel
+    const telemetryMount = document.getElementById('nats-telemetry-mount');
+    if (telemetryMount) {
+      this.natsPanel = new NatsTelemetryPanel(telemetryMount, this.mesh);
     }
   }
 

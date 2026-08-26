@@ -1,8 +1,13 @@
 {
   "name": "TRIARCH: Cyclic Edge",
-  "version": "1.5.0",
-  "buildTime": "2026-08-26T10:15:00Z",
+  "version": "1.6.0",
+  "buildTime": "2026-08-26T10:45:00Z",
   "features": [
+    "Synadia Cloud NATS Telemetry & Control Center (Math Lab Suite)",
+    "Client-Side .creds Ingestion (Drag-and-Drop / Textarea / JWT Validation)",
+    "Live WebSocket Connection Probe & RTT Latency Diagnostic",
+    "Dynamic Transport Switcher (BroadcastChannel vs Synadia Cloud NATS)",
+    "Real-Time NATS Subject Traffic Monitor",
     "Pluggable Network Transport Abstraction (BaseTransport)",
     "Synadia Cloud / NATS WebSocket Transport Adapter (nats.ws)",
     "Standardized NATS Subject Hierarchy (triarch.rooms.<CODE>.*)",
