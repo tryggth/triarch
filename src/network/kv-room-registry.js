@@ -10,7 +10,7 @@
  */
 
 import { GO_FIRST_TO_FACTION, FACTION_TO_GO_FIRST } from './protocol.js';
-import { globalDiscoveryBus, DISCOVERY_ACTIONS } from './discovery-bus.js';
+import { globalDiscoveryBus, DISCOVERY_ACTIONS, LOCAL_STORAGE_REGISTRY_KEY } from './discovery-bus.js';
 
 export const KV_BUCKET_NAME = 'TRIARCH_ROOMS';
 export const KV_ROOM_TTL_SECONDS = 3600; // 1 hour auto-expiry
@@ -509,7 +509,7 @@ export class KvRoomRegistry {
     // 3. Merge localStorage rooms (cross-tab fallback)
     if (typeof localStorage !== 'undefined') {
       try {
-        const raw = localStorage.getItem('triarch_public_rooms_v1');
+        const raw = localStorage.getItem(LOCAL_STORAGE_REGISTRY_KEY);
         if (raw) {
           const storedMap = JSON.parse(raw);
           for (const desc of Object.values(storedMap)) {

@@ -37,13 +37,24 @@ export class LobbyDiscoveryBus {
     // Storage event listener for cross-tab synchronization fallback
     if (typeof window !== 'undefined' && typeof window.addEventListener === 'function') {
       this._storageListener = (e) => {
-        if (e.key === LOCAL_STORAGE_REGISTRY_KEY && e.newValue) {
-          try {
-            const parsed = JSON.parse(e.newValue);
+        if (e.key === LOCAL_STORAGE_REGISTRY_KEY) {
+          if (e.newValue) {
+            try {
+              const parsed = JSON.parse(e.newValue);
+              for (const desc of Object.values(parsed)) {
+                if (desc && desc.roomCode) {
+                  for (const cb of this.listeners) {
+                    cb(DISCOVERY_ACTIONS.ROOM_ADVERTISE, desc);
+                  }
+                }
+              }
+            } catch (err) {}
+          } else {
+            // Cleared storage
             for (const cb of this.listeners) {
-              cb(DISCOVERY_ACTIONS.ROOM_ADVERTISE, parsed);
+              cb(DISCOVERY_ACTIONS.ROOM_REMOVED, null);
             }
-          } catch (err) {}
+          }
         }
       };
       window.addEventListener('storage', this._storageListener);
